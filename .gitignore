@@ -1,6 +1,6 @@
 # === AuditPPI .gitignore ===
-# Track source, config, scripts, and the manuscript.
-# Do NOT track large data lakes, vendored upstream repos, model weights, or tests.
+# Track source, config, and scripts.
+# Do NOT track large data lakes, vendored upstream repos, model weights, tests, or manuscripts.
 
 # --- Large data / vendored upstream (tens of GB; reached via conf/paths.py) ---
 /data/
@@ -17,6 +17,9 @@ dist/
 
 # --- Tests (kept locally, not version-controlled) ---
 /tests/
+
+# --- Manuscript (kept locally, not version-controlled) ---
+/manuscripts/
 
 # --- Test / tooling caches ---
 .pytest_cache/
