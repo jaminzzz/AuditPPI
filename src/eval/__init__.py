@@ -15,6 +15,7 @@ Benchmark objects and concrete loaders live in :mod:`src.data.benchmarks`.
 from src.data.benchmarks import Benchmark
 from src.eval.metrics import (
     auprc,
+    pair_score_metrics,
     participation_t,
     roc_auc,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "evaluate_scorer",
     "benchmark_diagnostic",
     "participation_t",
+    "pair_score_metrics",
     "roc_auc",
     "auprc",
     "best_f1_threshold",

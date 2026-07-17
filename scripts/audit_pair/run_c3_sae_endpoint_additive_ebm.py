@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import random
 from pathlib import Path
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-auditppi")
@@ -26,9 +25,10 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-auditppi")
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
 from conf.paths import AUDIT, SAE_REPS as SAE_REP_ROOT
+from src.eval.metrics import pair_score_metrics as metrics
+from src.runtime import seed_all
 from src.interpretability.annotations import add_sae_annotations
 from src.interpretability.ebm_effects import (
     ebm_feature_tables,
@@ -47,32 +47,12 @@ REP_DIR = {
 }
 
 
-def seed_all(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
-
 def load_split(rep: str, split: str) -> dict[str, np.ndarray]:
     d = torch.load(REP_DIR[rep] / f"{split}_embeddings.pt", map_location="cpu", weights_only=False)
     return {
         "a": d["emb_a"].numpy(),
         "b": d["emb_b"].numpy(),
         "y": d["label"].float().numpy().astype(np.int8),
-    }
-
-
-def metrics(y: np.ndarray, p: np.ndarray) -> dict:
-    pred = (p >= 0.5).astype(np.int8)
-    return {
-        "n": int(y.size),
-        "pos_rate": float(y.mean()),
-        "auroc": float(roc_auc_score(y, p)),
-        "auprc": float(average_precision_score(y, p)),
-        "accuracy_at_0.5": float((pred == y).mean()),
-        "brier": float(brier_score_loss(y, p)),
-        "score_mean": float(p.mean()),
-        "score_std": float(p.std()),
     }
 
 

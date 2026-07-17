@@ -12,7 +12,11 @@ from collections import defaultdict
 from typing import Dict, Hashable, Sequence, Tuple
 
 import numpy as np
-from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.metrics import (
+    average_precision_score,
+    brier_score_loss,
+    roc_auc_score,
+)
 
 Pair = Tuple[Hashable, Hashable]
 
@@ -23,6 +27,27 @@ def roc_auc(labels: Sequence[int], scores: Sequence[float]) -> float:
 
 def auprc(labels: Sequence[int], scores: Sequence[float]) -> float:
     return float(average_precision_score(np.asarray(labels), np.asarray(scores)))
+
+
+def pair_score_metrics(y: np.ndarray, p: np.ndarray) -> dict:
+    """Metric block for endpoint-additive pair scorers (probabilities in ``p``).
+
+    Shared verbatim by the C3 / PRING endpoint-additive audits (EBM / MLP). The
+    field set — including ``brier``, ``accuracy_at_0.5`` and the score-distribution
+    summary — is part of those audits' on-disk JSON contract, so it is deliberately
+    distinct from :func:`src.eval.classification.binary_classification_metrics`.
+    """
+    pred = (p >= 0.5).astype(np.int8)
+    return {
+        "n": int(y.size),
+        "pos_rate": float(y.mean()),
+        "auroc": float(roc_auc_score(y, p)),
+        "auprc": float(average_precision_score(y, p)),
+        "accuracy_at_0.5": float((pred == y).mean()),
+        "brier": float(brier_score_loss(y, p)),
+        "score_mean": float(p.mean()),
+        "score_std": float(p.std()),
+    }
 
 
 def participation_t(

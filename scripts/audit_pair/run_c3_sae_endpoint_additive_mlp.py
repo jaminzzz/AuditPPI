@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import random
 from pathlib import Path
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-auditppi")
@@ -29,9 +28,11 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-auditppi")
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
+from sklearn.metrics import roc_auc_score
 
 from conf.paths import AUDIT, SAE_REPS as SAE_REP_ROOT
+from src.eval.metrics import pair_score_metrics as metrics
+from src.runtime import seed_all
 from src.interpretability.annotations import add_sae_annotations
 from src.interpretability.attribution import (
     endpoint_gradient_input_attribution,
@@ -44,14 +45,6 @@ REP_DIR = {
     "sae_max": SAE_REP_ROOT / "sae_max",
     "binary": SAE_REP_ROOT / "binary_thr0",
 }
-
-
-def seed_all(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
 
 
 def load_split(rep: str, split: str) -> dict[str, torch.Tensor]:
@@ -84,20 +77,6 @@ def predict(
         alpha_a.append(aa.detach().cpu().numpy())
         alpha_b.append(bb.detach().cpu().numpy())
     return np.concatenate(probs), np.concatenate(alpha_a), np.concatenate(alpha_b)
-
-
-def metrics(y: np.ndarray, p: np.ndarray) -> dict:
-    pred = (p >= 0.5).astype(np.int8)
-    return {
-        "n": int(y.size),
-        "pos_rate": float(y.mean()),
-        "auroc": float(roc_auc_score(y, p)),
-        "auprc": float(average_precision_score(y, p)),
-        "accuracy_at_0.5": float((pred == y).mean()),
-        "brier": float(brier_score_loss(y, p)),
-        "score_mean": float(p.mean()),
-        "score_std": float(p.std()),
-    }
 
 
 def train(args: argparse.Namespace) -> tuple[EndpointMLP, dict, dict]:
