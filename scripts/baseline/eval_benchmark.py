@@ -4,7 +4,7 @@
 The diagnostic needs **no trained model** — it quantifies how participation-prone the benchmark itself
 is (DESIGN §7), the honesty meter every model number is read against.
 
-    PY=/data/wmzhu/anaconda3/envs/genmol/bin/python
+    PY=/data/wmzhu/anaconda3/envs/E1/bin/python
     $PY scripts/eval_benchmark.py --benchmark rf2ppi
     $PY scripts/eval_benchmark.py --benchmark c3:test
     $PY scripts/eval_benchmark.py --benchmark cross_species:ecoli

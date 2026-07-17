@@ -19,8 +19,8 @@ Each id is resolved to its sequence via the h5 ``sequences`` table. Sequences in
 the store are fixed-width ``S3000``; proteins longer than 3000 aa are truncated
 AT SOURCE (a pre-existing property inherited by the C3 CSVs, not introduced here).
 
-Run (needs h5py + hdf5plugin -> genmol env):
-    PYTHONPATH=. /data/wmzhu/anaconda3/envs/genmol/bin/python \
+Run in E1 (includes h5py + hdf5plugin):
+    PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
         scripts/prep/export_rapppid_clevel_csvs.py --levels c1 c2
 """
 from __future__ import annotations

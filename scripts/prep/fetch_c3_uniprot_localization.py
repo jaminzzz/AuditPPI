@@ -14,7 +14,7 @@ cached so re-runs skip already-fetched ids. Only public accession ids leave the
 machine; no project code or secrets are transmitted.
 
 Run:
-    /data/wmzhu/anaconda3/envs/primenet/bin/python scripts/fetch_c3_uniprot_localization.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/fetch_c3_uniprot_localization.py
 """
 from __future__ import annotations
 

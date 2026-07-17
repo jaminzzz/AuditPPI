@@ -8,7 +8,7 @@ Design follows plot_prank_figures.py: 7.2" wide, 6-7pt Arial, soft palette,
 rounded panel labels, mixed chart types, exports svg/pdf/png.
 
 Run:
-    /data/wmzhu/anaconda3/envs/genmol/bin/python scripts/plot_audit_figures.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_audit_figures.py
 """
 
 from __future__ import annotations

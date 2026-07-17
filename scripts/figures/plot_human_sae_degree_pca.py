@@ -6,7 +6,7 @@ Each point is one PRING Human protein. Coordinates are computed from the
 after matching proteins to the PRING full-graph degree table.
 
 Run:
-    /data/wmzhu/anaconda3/envs/primenet/bin/python scripts/plot_human_sae_degree_pca.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_human_sae_degree_pca.py
 """
 
 from __future__ import annotations

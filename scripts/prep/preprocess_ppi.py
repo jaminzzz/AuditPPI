@@ -17,9 +17,9 @@ Splits are the homology-aware ones already shipped with the data:
   * PDB_PPI : ``{posi,nega}_val.list`` hold the CLUSTER ids reserved for validation.
   * AFDB_DDI: ``pretrain_split_50id80cov/{train,val}_ids.strict50id80cov.txt`` (lines ``sp|ACC|NAME``).
 
-Usage (genmol env)::
+Usage (E1 env)::
 
-    PY=/data/wmzhu/anaconda3/envs/genmol/bin/python
+    PY=/data/wmzhu/anaconda3/envs/E1/bin/python
     $PY scripts/preprocess_ppi.py --limit 200          # tiny smoke slice
     $PY scripts/preprocess_ppi.py                       # full datasets (the long job)
 """

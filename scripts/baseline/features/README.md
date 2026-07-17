@@ -30,8 +30,8 @@ PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
   --input data/rapppid_c3/c3.test.csv \
   --sequence-cols query,text
 
-# ESM-2 final layer; genmol environment
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/genmol/bin/python \
+# ESM-2 final layer; E1 environment
+PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/baseline/features/extract_deepnano_features.py \
   --backbone esm2 \
   --input data/rapppid_c3/c3.train.csv \
@@ -58,7 +58,7 @@ contextual embedding B     1280
 ```
 
 ```bash
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/genmol/bin/python \
+PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/baseline/features/extract_pplm_features.py \
   --pairs data/rapppid_c3/c3.test.csv \
   --output data/sae/baseline_features/pplm/c3_test.pt
@@ -95,7 +95,7 @@ assigns chain IDs, runs the multimer model, and mean-pools the final layer over
 each chain separately. This matches the upstream GeneralPPI wrapper.
 
 ```bash
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/genmol/bin/python \
+PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/baseline/features/extract_mint_features.py \
   --pairs data/rapppid_c3/c3.test.csv \
   --output data/sae/baseline_features/mint/c3_test.pt

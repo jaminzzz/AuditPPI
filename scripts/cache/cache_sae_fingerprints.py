@@ -12,11 +12,11 @@ Sequences are deduplicated across the three C3 splits so ESM+SAE runs once each.
 This is the ESM-2 provenance for the pre-ESM-C fingerprint results; the ESM-C
 line (cache_esmc_fingerprints.py) supersedes it. Writes ESM2_SEQ_CACHE.
 
-Run with the genmol conda env (needs the InterPLM package under external/). The
+Run with the E1 conda env (uses the InterPLM package under external/). The
 ESM-2-650M weights are loaded from HuggingFace by name, so they must be cached
 locally when HF_HUB_OFFLINE=1.
 
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/genmol/bin/python \
+  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
       scripts/cache/cache_sae_fingerprints.py
 """
 from __future__ import annotations

@@ -26,7 +26,7 @@ Inputs (all row-aligned, verified by export_c3_pair_id_alignment.py):
   - reps binary   {split}_embeddings.pt   (emb_a/emb_b/label, 0/1 uint8 16384-d)
   - c3_{split}_pair_ids.parquet           (row -> id_a, id_b, label)
 
-Run (any env with torch+pandas+sklearn+scipy; primenet works):
+Run in E1:
   python scripts/analyze_c3_negative_sampling_bias.py --split test
   python scripts/analyze_c3_negative_sampling_bias.py --split train
 """

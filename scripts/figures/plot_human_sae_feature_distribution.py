@@ -10,7 +10,7 @@ and summarizes both the SAE vocabulary composition and how often each category
 appears in human proteins.
 
 Run:
-    /data/wmzhu/anaconda3/envs/genmol/bin/python scripts/plot_human_sae_feature_distribution.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_human_sae_feature_distribution.py
 """
 
 from __future__ import annotations

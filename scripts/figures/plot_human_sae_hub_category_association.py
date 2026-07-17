@@ -11,7 +11,7 @@ features by ``esmc_sae_max``. Category shares are computed within those top
 features, which avoids the pooled-max matrix's dense low-level activation tail.
 
 Run:
-    /data/wmzhu/anaconda3/envs/genmol/bin/python scripts/plot_human_sae_hub_category_association.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_human_sae_hub_category_association.py
 """
 
 from __future__ import annotations

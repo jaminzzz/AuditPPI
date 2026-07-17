@@ -10,7 +10,7 @@ S2: SAE fingerprint anatomy and compactness
 S3: transferable concepts and structural grounding
 
 Run:
-    /data/wmzhu/anaconda3/envs/genmol/bin/python scripts/plot_supplementary_audit_figures.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_supplementary_audit_figures.py
 """
 
 from __future__ import annotations

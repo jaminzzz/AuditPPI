@@ -12,12 +12,12 @@ Definition:
 
 Examples:
   # CPU smoke, no feature cache needed:
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/genmol/bin/python \
+  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
     scripts/audit_protein/run_pring_cross_species_generalization.py \
     --feature-kind sequence_basic
 
   # SAE features (needs per-species caches built by cache_pring_species_esmc_sae.py):
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/genmol/bin/python \
+  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
     scripts/audit_protein/run_pring_cross_species_generalization.py \
     --feature-kind sae_max --model-kind xgboost
 """

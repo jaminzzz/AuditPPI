@@ -44,10 +44,10 @@ PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
   --output data/sae/seq_caches/rapppid_esmc_l60_l80_features.pt
 ```
 
-Run ESM-2 + InterPLM SAE in the `genmol` environment:
+Run ESM-2 + InterPLM SAE in the E1 environment:
 
 ```bash
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/genmol/bin/python \
+PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/features/extract_protein_features.py \
   --backbone esm2 \
   --input data/rapppid_c3/c3.train.csv \
@@ -75,7 +75,7 @@ The primary order-invariant representation is `sym`:
   model averages the two predictions for each original pair.
 
 ```bash
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/genmol/bin/python \
+PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/features/build_pair_features.py \
   --cache data/sae/seq_caches/rapppid_esmc_l60_l80_features.pt \
   --feature esmc_l60_sae_max \

@@ -11,7 +11,7 @@ script uses the verified ESM-2 phase value recorded in
 as unavailable.
 
 Run:
-    /data/wmzhu/anaconda3/envs/genmol/bin/python scripts/plot_supplementary_baseline_comparison.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_supplementary_baseline_comparison.py
 """
 
 from __future__ import annotations

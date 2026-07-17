@@ -6,9 +6,9 @@ single sequences. Its data uses Ensembl protein ids (ENSP...), which do not
 map to the UniProt ids in our existing pooled caches, so proteins are matched
 to cached features by *exact sequence* (truncated to --max-residues) only.
 
-Run in the primenet conda env (needs the local transformers fork for ESM-C):
+Run in the unified E1 conda environment:
 
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/primenet/bin/python \
+  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
       scripts/cache/cache_pic_human_esmc_sae.py --prefill-only
 
 Output format matches the ppi_fingerprint pooled cache:

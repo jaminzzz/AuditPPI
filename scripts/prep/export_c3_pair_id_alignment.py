@@ -15,8 +15,8 @@ The emitted parquet has one row per reps row, in reps/CSV order:
 so downstream audits can attach per-protein annotations (degree, localization)
 and slice the cached SAE fingerprints by the same row index.
 
-Run (needs hdf5plugin -> genmol env):
-    /data/wmzhu/anaconda3/envs/genmol/bin/python scripts/export_c3_pair_id_alignment.py
+Run in E1 (includes hdf5plugin):
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/export_c3_pair_id_alignment.py
 """
 from __future__ import annotations
 

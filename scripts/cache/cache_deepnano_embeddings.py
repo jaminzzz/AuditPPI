@@ -7,7 +7,7 @@ the three probabilities are averaged. This script builds the frozen-PLM embeddin
 cache needed for that baseline with the backbones used in the project:
 
   --backbone esmc_6b   : ESM-C-6B layer 60, dim=2560   (run in the E1 env)
-  --backbone esm2_650m : ESM-2-650M layer 33, dim=1280 (run in the genmol env)
+  --backbone esm2_650m : ESM-2-650M layer 33, dim=1280 (run in the E1 env)
 
 No PLM parameters are trained here. RAPPPID CSVs are read-only. Outputs are
 written under DEEPNANO_DIR/deepnano_<backbone>/{seq_cache.pt,meta.json}. The
