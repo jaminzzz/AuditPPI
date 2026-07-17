@@ -1,0 +1,183 @@
+﻿深度学习在蛋白质-蛋白质相互作用预测建模中的前沿探索与系统性研究
+引言与生物学背景
+蛋白质-蛋白质相互作用（Protein-Protein Interactions, PPIs）是维持生命活动的核心分子机制。在细胞内部，蛋白质极少孤立发挥作用，而是通过与其他蛋白质分子的动态或稳定结合，形成功能性复合物或信号传导级联网络。这些相互作用广泛参与并调控着基因表达、免疫识别、跨膜运输、细胞周期控制以及代谢通路等几乎所有基础生物学过程1。由于PPI网络的任何异常扰动或拓扑结构的破坏均可能导致复杂疾病的发生，例如癌症中的肿瘤生长与转移、神经退行性疾病中的蛋白聚集，以及病原体（如SARS-CoV-2、HIV）通过表面抗原入侵宿主细胞，PPI的精确测绘与调控已成为现代分子生物学和创新药物研发的核心焦点1。
+在后基因组时代，尽管高通量测序技术揭示了海量的蛋白质序列，但确认这些蛋白质如何在三维空间中组装并发生相互作用仍是一项艰巨的挑战。传统上，鉴定PPI高度依赖于生物物理和生化实验技术，如X射线晶体学（X-ray crystallography）、核磁共振波谱学（NMR）、冷冻电子显微镜（cryo-EM）、酵母双杂交系统（Y2H）以及交联质谱法1。尽管这些技术提供了高可信度的原子级分辨率结合证据，但它们普遍存在成本高昂、耗时长、设备要求苛刻以及无法有效捕捉瞬时/弱相互作用等瓶颈1。据统计，即使在研究最为深入的模式生物大肠杆菌中，仍有约半数的理论相互作用未被实验证实，已知三维复合物结构的PPI仅占极小比例12。巨大的“暗相互作用组（Dark Interactome）”亟需高效的计算手段加以破译13。
+近年来，深度学习（Deep Learning, DL）作为人工智能领域的变革性力量，正在重塑计算生物学的技术范式15。与依赖于人工提取生化特征（如氨基酸组成、亲水性、电荷等）的传统机器学习算法（如支持向量机、随机森林）不同，深度学习模型能够自动从海量序列、三维结构和复杂拓扑网络中提取高维、非线性的抽象特征，极大提升了对蛋白质结合模式的表征能力1。目前的深度学习框架已广泛渗透到PPI二元预测、结合位点（PPIS）识别、高通量结合亲和力估算、全基因组网络重建以及结合剂的从头设计（De Novo Design）等多个维度2。
+序列特征驱动的深度学习模型与注意力机制
+在三维结构数据相对匮乏的早期阶段，研究人员主要依赖蛋白质的一级氨基酸序列进行建模。此类方法的核心假设是，蛋白质序列中隐含了决定其折叠方式和相互作用偏好性的密码1。
+卷积与循环神经网络的特征提取
+早期的深度学习方法利用卷积神经网络（CNNs）、循环神经网络（RNNs）以及长短期记忆网络（LSTMs）对蛋白质序列进行端到端的表征学习。例如，DPPI模型通过无监督数据构建多序列比对（MSA）驱动的概率谱，随后利用多个卷积层捕捉序列中的结合模体（Motifs），并结合随机投影模块处理成对序列特征，在二元相互作用预测中展现了出色的准确率13。CNN擅长通过局部感受野和滑动窗口提取连续的结合残基模式，而RNN和LSTM则用于捕捉蛋白质序列中由于折叠而导致的空间上相近但在序列上相隔甚远的残基之间的长程依赖关系15。
+为了丰富特征表达，多尺度连续氨基酸片段（MLD）、氨基酸组成（AAC）、联合三联体（Conjoint Triad, CT）和自协方差（Auto Covariance, AC）等特征被广泛融合至深度神经网络（DNNs）中。例如，DeepFE-PPI引入了新颖的残基表示方法；Deep-Trio利用多个并行的CNN架构从序列中提取不同层级的特征；而基于位置特异性打分矩阵（PSSM）和半球暴露（HSE）的融合特征进一步增强了序列模型的生化合理性6。
+注意力机制与Transformer在序列建模中的应用
+随着自然语言处理领域的突破，注意力机制（Attention Mechanisms）被引入PPI预测，彻底重塑了模型对关键氨基酸的聚焦能力。注意力机制通过可解释的权重分布，动态量化不同残基特征之间的耦合模式，使得研究人员能够从分子动力学层面解构蛋白质构象选择的偏好性15。
+代表性的工作包括：SDNN-PPI模型在DNN中融合自注意力机制，强化了提取理化特征的能力；LGS-PPIS则结合了边缘感知图卷积网络（EA-GCN）和自注意力模块，用于局部和全局信息的聚合；AttentionEP更是通过整合交叉注意力（Cross-attention）和自注意力机制，利用GCN、GAT和BiLSTM提取时空特征，并结合亚细胞定位数据进行关键蛋白质预测15。这类模型使得神经网络不再盲目对待整条序列，而是能够“智能”地锁定潜在的结合界面。
+蛋白质语言模型（PLMs）的突破
+将氨基酸序列视作“句子”，将氨基酸视作“单词”，催生了蛋白质语言模型（Protein Language Models, PLMs）。通过在数亿条真实蛋白质序列上进行自监督预训练（如掩码语言建模 MLM），PLMs（如ESM-1b、ESM-1v、ESM-2和ProtT5）隐式地掌握了蛋白质的进化规律、结构约束和功能模式27。例如，Meta AI开发的ESM-2模型在6.5亿参数规模下，能够为每个残基生成1280维的嵌入向量（Embeddings），这些向量深度编码了进化与结构上下文，使得下游模型无需繁琐的多序列比对（MSA）即可实现接近AlphaFold2精度的结构预测，推理时间仅需数秒27。
+然而，传统的PLMs由于是对单条蛋白质序列独立训练的，难以直接建模两条多肽链之间的相互作用。为突破这一局限，MINT模型对STRING-DB数据库中9600万个高置信度PPI进行了微调训练，通过修改MLM损失函数并引入交叉注意力块（Cross-attention Blocks），显式提取序列间的相互依赖关系。MINT在结合亲和力预测、突变影响评估以及SARS-CoV-2抗体交叉中和反应预测方面，显著超越了单序列PLM20。类似地，针对高度柔性的小分子多肽与蛋白质的相互作用，PepCNN模型将预训练语言模型（ProtT5）特征与PSSM、HSE相结合，结合文本CNN框架，显著提升了蛋白-多肽相互作用位点的预测特异性和精度26。而在无固定三维结构的固有无序蛋白（IDPs）领域，MoRF_ESM模型利用ESM-2提取进化和生化属性的注意力映射矩阵，结合TextCNN成功锁定了分子识别特征（MoRFs），在高度动态的蛋白相变和互作网络调控分析中展现了巨大潜力32。
+
+
+模型类别
+	代表性模型
+	核心架构与特征表示
+	应用优势与应用场景
+	传统深度学习
+	DPPI, DeepFE-PPI, Deep-Trio
+	CNN, RNN, LSTM提取MSA、CT、AAC等1D序列特征及PSSM谱6。
+	适用于无结构解析的蛋白，计算效率高，能够处理大规模全基因组测序数据。
+	注意力增强模型
+	SDNN-PPI, AttentionEP, LGS-PPIS
+	在DNN/GNN中融合自注意力与交叉注意力，动态分配权重15。
+	能够可视化并解释关键残基的贡献，提升结合位点（PPIS）的识别灵敏度。
+	大语言模型(PLMs)
+	ESM-2, ProtT5, MINT, PepCNN, MoRF_ESM
+	基于Transformer的掩码语言建模，利用无标签数据预训练生成高维嵌入向量（Embeddings）20。
+	彻底摆脱对MSA的依赖；隐式包含折叠结构信息；MINT实现上下文感知交互建模。
+	从拓扑图到三维几何：图神经网络的范式跨越
+鉴于序列模型忽略了蛋白质空间折叠后形成的高级几何属性，而这种属性往往直接决定了表面的电荷分布、亲疏水性以及空腔结构，计算生物学逐渐将视线转向图表示学习（Graph Representation Learning）和图神经网络（GNN）6。
+宏观PPI网络层面的GNN
+在宏观的分子拓扑层面，GNN将整个PPI网络视作一张巨图，其中节点为蛋白质，边为相互作用。通过图卷积（GCN）和图注意力网络（GAT），模型能够在网络结构中传递并聚合邻居节点的特征，生成富含全局拓扑上下文的低维嵌入11。例如，SkipGNN模型引入了“跳跃图”机制，不仅考虑直接的物理互作，还将二阶间接互作信息纳入考量。这一创新使得模型在极度稀疏或存在高通量实验噪声的网络中依然保持鲁棒的链路预测（Link Prediction）性能11。GNN-PPI模型则特别针对新发现蛋白质的预测能力不足问题，改进了模型结构，大幅提升了对全新蛋白间互作的泛化能力11。此外，HIGH-PPI等模型采用分层架构，底层提取单个蛋白质的特征，顶层聚合PPI网络的拓扑特征，最终将两者拼接输出预测结果6。
+微观分子三维结构的GNN建模
+在微观层面，GNN直接利用X射线、cryo-EM解析或AlphaFold2预测的3D坐标构建蛋白质残基图或原子图34。残基级图通常以    原子为节点，若两个重原子距离小于特定阈值（如8.5 Å），则在它们之间建立边。例如，DeepRank-GNN等框架开发了自动化管线，将PDB格式的3D结构文件转换为交互界面图，使图网络能够以端到端的方式学习特定问题的交互模式，广泛用于评估刚体对接模型的评分与排序35。
+然而，传统GNN在图卷积层叠加时极易面临“过平滑”（Over-smoothing）问题，即所有节点的表征趋于同质化，丢失了局部的空间特异性。为了应对这一挑战，多尺度图卷积模型（如MGPPI和EGCPPIS）相继问世。MGPPI通过构建多重卷积层并在GNN中引入多尺度模块，结合新颖的Grad-WAM可解释性算法，成功在SARS-CoV-2刺突蛋白与人类ACE2受体的结合中高亮了关键突变位点6。而EGCPPIS则构建了双通道的层次图表示（包含残基级与原子级），利用GraphSAGE模块提取原子级特征并引入对比学习（Contrastive Learning）策略，以整合不同尺度的结构信息34。
+等变图神经网络（EGNN）：突破三维旋转平移不变性
+尽管标准GNN能够处理分子图拓扑，但它们在处理空间3D坐标时存在严重的缺陷。传统的GNN为了满足物理空间的不变性，通常只能计算节点间的相对距离（如欧氏距离）或角度作为标量边特征。这种特征压缩导致模型完全丢失了具有方向敏感性的关键物理量，如偶极矩和键角振动模式，这在蛋白质表面电荷识别与配体对接中是致命的36。
+等变图神经网络（Equivariant Graph Neural Networks, EGNNs）通过数学上的群表示论彻底解决了这一问题。对于三维欧氏群   （包含旋转、平移和反射）或特殊欧氏群   ，如果一个函数满足   （其中    为旋转矩阵，   为平移向量），则该函数是等变的38。
+几何向量感知机-图神经网络（GVP-GNN）是应用最广泛的等变框架之一。GVP-GNN包含分离的标量通道和向量通道，通过跨通道的信息传递保留了三维几何的内在异质性。基于此开发的G-RANK模型在评估蛋白质对接诱饵（Decoys）时展现了卓越的排序能力38。进一步地，ASCE-PPIS结合了等变GNN与图池化及图折叠技术，利用结构自适应采样策略构建子图，以多尺度融合的方式提升了超过10%的PPIS预测性能37。E(Q)AGNN-PPIS模型则在等变网络之上叠加了动态注意力机制，通过计算局部方差作为自适应带宽参数，使得模型能够更加精细地捕捉结合口袋内的复杂空间模式36。
+在药物靶向与亲和力评估领域，CASTER-DTA模型使用GVP-GNN提取    等变的靶点蛋白质几何表征，并通过引入球面调和函数（Spherical Harmonics）的张量积（Tensor Products）操作，层次化地编码局部交互模式21。这种架构不仅精准模拟了真实物理世界中的多向性结合力，还为整个人类蛋白质组与FDA批准药物的结合亲和力估算提供了高通量的基准21。类似地，EquiDock则首次利用    等变GNN直接预测配体相对于受体蛋白的刚体平移与旋转矩阵，将计算对接时间缩减至1秒内，彻底颠覆了传统基于快速傅里叶变换（FFT）和蒙特卡洛采样的搜索模式44。
+
+
+图模型演进阶段
+	代表性架构与模型
+	核心技术机制
+	解决的核心瓶颈
+	拓扑GNN
+	SkipGNN, GNNGL-PPI
+	GCN、GAT、跳跃图捕获网络宏观一阶与二阶拓扑11。
+	克服由于实验假阴性导致的网络稀疏性与噪声问题。
+	多尺度3D GNN
+	DeepRank-GNN, MGPPI, EGCPPIS
+	将3D坐标转为残基/原子图，结合多通道卷积和池化防过平滑6。
+	将传统标量序列扩展到3D空间连通性，提升位点预测精度。
+	等变图神经网络
+	GVP-GNN, ASCE-PPIS, EquiDock, CASTER-DTA
+	  
+ 等变性，张量积运算分离标量与向量通道，保持物理方向性21。
+	防止3D坐标向1D标量压缩造成的方向性物理特征丢失，实现高精度的位点识别与快速对接。
+	数据泄漏、捷径学习与基准评估危机
+尽管上述深度学习模型在各类基准数据集上报告了高达95%至99%的超高准确率，但整个领域正面临一场系统性的“可信度危机”。多项严格的再评估研究揭示，现有基于序列的深度学习模型的卓越表现，本质上是一个算法“黑盒陷阱”，主要源于数据泄漏（Data Leakage）、网络拓扑捷径和负样本偏倚4。
+训练数据泄漏与“捷径学习”
+在传统的交叉验证中，蛋白质对通常被随机划分为训练集和测试集。Park与Marcotte团队的研究指出，这种完全随机的划分会导致大量蛋白质同时出现在训练集和测试集中，破坏了样本的独立性14。他们提出了三个重叠层级：C1（测试对的两个蛋白质均在训练集中）、C2（仅有一个在训练集中）和C3（两者均不在训练集中）4。
+研究发现，模型在C1集上表现完美，但在面对C3甚至C2集时，性能往往退化为随机猜测。这说明模型并没有真正学习到能够驱动蛋白结合的普遍生化规律（如匹配的结合结构域），而是依赖于两种机器学习捷径（Shortcuts）作弊：
+1. 节点度信息捷径（Node Degree Shortcuts）： 深度学习模型极其“懒惰”，它们发现某些特定蛋白质在训练集中极度活跃（即Hub蛋白，连接度极高），且几乎不出现在负样本中。因此，在测试集中遇到包含该蛋白质的组合时，模型无需考虑配体的特征，便直接判定为“相互作用”14。
+2. 序列相似性记忆（Sequence Similarity Memory）： 模型只需检测测试蛋白质是否与训练集中的某些蛋白质具有高同源性。如果    结合   ，且    序列类似于   ，则模型强行判定    结合   。当研究人员强制引入严格的序列相似度过滤（如去除相似度>25%的序列），避免测试集“剽窃”训练集的记忆特征时，当前众多顶尖的纯序列深度学习模型全部失效4。为此，建立基于三维界面相似性（Interface Similarity）而非简单元数据或序列相似性的严格数据分割标准，已成为防范数据泄漏的核心建议12。
+负样本采样的逻辑困境
+在将PPI预测形式化为二元分类任务时，正样本可直接从实验数据库中提取，而负样本（不相互作用对）的构建则极度匮乏。传统的“随机抽取法”基于互补图（Complement Graph）进行负采样。然而，由于未被观测到的相互作用并不代表物理上无法结合（违背封闭世界假设），这导致了高比例的假阴性，极大地偏离了真实决策边界48。
+为降低假阴性，另一种策略是“亚细胞定位偏差法”（Subcellular Localization Bias），即抽取定位于细胞不同区室（如细胞核与线粒体）的蛋白质作为负样本4。然而，最新的研究表明，蛋白质语言模型本身就具有强大的预测亚细胞定位的能力（即Accidental Localizers）50。这使得PPI分类器在训练时，不再努力学习复杂的表面相互作用机制，而是降维成了简单的“亚细胞定位分类器”。当其面临位于同一细胞室内但由于电荷或空间位阻而不相互作用的“硬负样本（Hard Negatives）”时，错误率急剧上升48。
+为了破局，科学界正大力开发高质量的非交互数据库。例如，Negatome数据库专门收录了经人工和晶体学验证、明确不发生物理交互的蛋白质与结构域配对51。另外，诸如UPNA-PPI等新方法开始从网络互补性和高阶拓扑分布的角度出发，设计启发式的硬负样本生成管线，以期提供符合生物物理合理性的对抗样本来提升模型的真实泛化性能48。此外，包含PRING等图级别基准的提出，强制模型进行交叉物种、路径富集等功能导向的评估，进一步压榨了纯序列模型的投机空间3。
+蛋白质互作数据基座与平台生态
+计算模型的突破离不开底层高质量数据库的支持。目前全球已形成了包含原发实验库、元数据库和预测功能库的复杂生态52。
+
+
+数据库类别
+	代表性数据库与平台
+	覆盖范围与核心特征
+	基础原发实验数据库
+	BioGRID, IntAct, DIP, MINT, BIND
+	这些平台依赖人工从大量的酵母双杂交、亲和纯化质谱及低通量小规模实验文献中提取交互数据53。IntAct等积极参与IMEx联盟，推行标准的PSI-MI格式，并过滤了多维度复合物（Spokes模型）还原为二元关系，具有极高的数据置信度52。
+	元数据库与预测网络
+	STRING, iRefIndex, APID, Mentha
+	不仅整合上述所有原发实验数据，还引入基因共表达、进化共存、文本挖掘等多维度证据来打分。STRING涵盖超过上万个物种的数以百亿计的潜在交互，是训练大型MINT等PLM模型不可或缺的数据海量来源52。
+	人类及模式生物特化库
+	HPRD, HPID, I2D, HomoMINT, DPEB
+	专门聚焦于人类等模式生物。HPRD手工整合了疾病关联、结构域及翻译后修饰；DPEB则进一步集成了AlphaFold2结构嵌入及ESM-2/ProtVec大模型向量，为人类疾病机制网络分析提供多模态支持53。
+	负样本与硬过滤数据库
+	Negatome 2.0, PDB
+	PDB提供最权威的3D晶体复合体坐标，支撑EGNN等前沿3D结构模型的迭代35；Negatome则提供人工验证的不存在物理交互的“硬负样本”，用于对抗深度学习的亚细胞位置投机偏好，提升模型的真实辨别率51。
+	向前延伸：药物发现、从头设计与计算对接应用
+随着预测精度与运行效率的大幅提升，深度学习技术正深度嵌入生物工程及制药管线的核心环节，从靶点筛选延展至具有定制化功能分子的“从头设计（De Novo Design）”。
+虚拟筛选、计算对接与GPU超算加速
+在寻找PPI抑制剂或小分子药物的过程中，计算工具被广泛用于大规模筛选。传统基于快速傅里叶变换（FFT）的刚体对接不仅耗时，还受限于难以捕捉柔性变化。针对这一问题，东京工业大学与日本产业技术综合研究所（AIST）开发了MEGADOCK软件，其利用实数成对形状互补（rPSC）评分，将复杂的3D体素化、配体旋转及FFT计算全流程映射至GPU集群，并在Fugaku和ABCI超级计算机上实现了全交互组级别的超高速筛选（每日预测超7千万对互作）8。MEGADOCK-Web结合生化途径数据，极大地丰富了可探索的已知/未知蛋白复合物空间62。
+此外，小分子与蛋白质间的化合物-蛋白相互作用（CPI）预测同样取得了重大进展。AIST通过结合化合物的图神经网络（GNN）和蛋白质氨基酸序列的一维CNN，开发了基于端到端（End-to-End）表示学习的CPI模型，显著超越了传统分子指纹模型的预测能力，并通过注意力机制解释了与药物相互作用的关键肽段25。庆应义塾大学的研究团队则开发了PreBINDS网络平台，并结合多重互作组数据（包含蛋白-蛋白、化合物-化合物网络），使深度学习模型在寻找新颖的非平面PPI抑制剂时，有效克服了高维度化学空间搜索中的假阳性陷阱65。而在抗生素耐药性应对方面，早稻田大学基于ProteinBERT开发的预测模型通过提取隐层特征，不依赖传统的同源比对即可预测抗药基因靶点的交互和修饰机制69。针对动态构象解析的难点，富士通（Fujitsu）与理化学研究所（RIKEN）成功利用生成式AI技术结合冷冻电镜（Cryo-EM）2D投影图像，将目标蛋白质构象变化的3D密度图预测时间从数天缩短至2小时，为靶向动态构象（如病毒刺突蛋白激活状态）的药物设计铺平了道路70。
+生成式AI与蛋白质从头设计（De Novo Design）
+在过去，设计具有高亲和力和体内功能的结合剂（Binders）往往需要经历漫长的定向进化和高通量实验筛选，且设计目标只能在天然蛋白的框架内修补22。而现在，以RFdiffusion和ProteinMPNN为核心的生成式AI系统重塑了蛋白质工程。
+RFdiffusion是一种基于去噪扩散概率模型（Denoising Diffusion Probabilistic Models）的生成算法。它通过微调RoseTTAFold结构预测网络，继承了自然界物理法则的先验知识。面对极其难以成药的靶点（如缺乏明显结合口袋的致癌物KRAS），用户只需在靶点表面指定几个关键的相互作用“热点（Hotspots）”，RFdiffusion即可从一团随机噪声坐标出发，在反向扩散过程中逐步塑造出全新、完美的结合面三维骨架（Backbone）22。
+获取骨架后，反向折叠（Inverse Folding）工具ProteinMPNN（基于深度图神经网络）能够迅速赋予该骨架具有物理稳定性的氨基酸序列配置22。最后，结合AlphaFold-Multimer进行打分（参考置信度pLDDT及复合物界面误差pAE），即可对设计的序列进行实验前过滤71。最新的“动力学信息驱动（Dynamics-informed）”策略更是融合了分子动力学模拟（MD），使得针对KRAS动态系综的结合剂从头设计成功率大幅提升至60%，超越了单纯静态晶体结构设计的限制75。这种突破意味着，面对不断变异的病毒或复杂的癌症通路，科学家能够像“编写代码”一样按需设计高亲和力靶向蛋白。
+未来展望与挑战
+深度学习已经将蛋白质-蛋白质相互作用的研究从实验主导的探索转变为计算主导的工程化预测与设计。从序列特征的Transformer大语言模型，到捕捉3D几何不变性的    等变图神经网络，再到实现扩散生成机制的RFdiffusion，预测精度、通量和计算效率正在以指数级的速度跃升。
+然而，要彻底破解生命的互作密码，该领域仍必须直面和跨越几个关键障碍。首先，研究人员必须根除长期存在的数据泄漏危机。开发高度依赖3D界面相似性聚类和整合拓扑学“硬负样本”的严格评估框架，是防止复杂神经网络退化为“特征投机者”的必由之路。其次，生命体内的蛋白质相互作用远非刚性的“锁钥模型”，而是伴随着高度柔性重排和变构效应的动态过程。未来的深度学习架构必须向四维时空拓展，将预训练模型与多态分子动力学（Molecular Dynamics）数据深度融合。只有当人工智能真正学会理解分子在溶剂中的时间演化与动力学自由能景观时，蛋白质计算模型才能在精准医疗、多肽药物开发以及从头合成生物学中兑现其全部的革命性潜力。
+引用的著作
+   1. Advances in protein-protein interaction prediction: a deep learning perspective - Frontiers, https://www.frontiersin.org/journals/bioinformatics/articles/10.3389/fbinf.2025.1710937/full
+   2. Protein–protein interaction prediction with deep learning: A comprehensive review - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC9520216/
+   3. PRING: Rethinking Protein-Protein Interaction Prediction from Pairs to Graphs - NIPS, https://papers.nips.cc/paper_files/paper/2025/file/86a4ea51ccac6c830230f281a23e74c8-Paper-Datasets_and_Benchmarks_Track.pdf
+   4. Cracking the black box of deep sequence-based protein-protein interaction prediction, https://www.biorxiv.org/content/10.1101/2023.01.18.524543v1.full-text
+   5. Architecture of the human interactome defines protein communities and disease networks | Request PDF - ResearchGate, https://www.researchgate.net/publication/317005993_Architecture_of_the_human_interactome_defines_protein_communities_and_disease_networks
+   6. MGPPI: multiscale graph neural networks for explainable protein–protein interaction prediction - Frontiers, https://www.frontiersin.org/journals/genetics/articles/10.3389/fgene.2024.1440448/full
+   7. Peptide–protein docking: from physics-based models to generative intelligence, https://pubs.rsc.org/en/content/articlehtml/2026/cc/d6cc00583g
+   8. 論文 / 著書情報 Article / Book Information - T2R2, https://t2r2.star.titech.ac.jp/rrws/file/CTT100684742/ATD100000413/
+   9. Prediction of protein motions from amino acid sequence and its application to protein-protein interaction - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC3245509/
+   10. Protein–protein interaction prediction with deep learning: a comprehensive review, https://nrc-publications.canada.ca/eng/view/object/?id=63506df6-2356-4206-a461-dcc7e240f98d
+   11. Graph Neural Networks for Protein-Protein Interactions - A Short Survey - arXiv, https://arxiv.org/html/2404.10450v1
+   12. Revealing data leakage in protein interaction benchmarks - arXiv, https://arxiv.org/html/2404.10457v1
+   13. Predicting protein–protein interactions through sequence-based deep learning | Bioinformatics | Oxford Academic, https://academic.oup.com/bioinformatics/article/34/17/i802/5093239
+   14. Cracking the black box of deep sequence-based protein–protein interaction prediction - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC10939362/
+   15. Recent advances in deep learning for protein-protein interaction: a review - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC12168265/
+   16. Revolutionizing protein-protein interaction prediction with deep learning - PubMed, https://pubmed.ncbi.nlm.nih.gov/38330793/
+   17. Growing ecosystem of deep learning methods for modeling protein-protein interactions, https://pubmed.ncbi.nlm.nih.gov/38102755/
+   18. Structure-Based Approaches for Protein–Protein Interaction Prediction Using Machine Learning and Deep Learning - MDPI, https://www.mdpi.com/2218-273X/15/1/141
+   19. role of protein embeddings for protein–protein interaction prediction with graph neural networks | Briefings in Bioinformatics | Oxford Academic, https://academic.oup.com/bib/article/27/3/bbag313/8711658
+   20. Learning the language of protein-protein interactions - PMC - NIH, https://pmc.ncbi.nlm.nih.gov/articles/PMC12859026/
+   21. CASTER-DTA: equivariant graph neural networks for predicting drug–target affinity | Briefings in Bioinformatics | Oxford Academic, https://academic.oup.com/bib/article/26/5/bbaf554/8303310
+   22. De novo protein design: a transformative frontier in clinical protein applications - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC12958671/
+   23. Predicting Protein-Protein Interactions from Primary Protein Sequences Using a Novel Multi-Scale Local Feature Representation Scheme and the Random Forest - Research journals, https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0125811
+   24. GNNGL-PPI: multi-category prediction of protein-protein interactions using graph neural networks based on global graphs and local subgraphs - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC11080243/
+   25. Compound–protein interaction prediction with end-to-end learning of neural networks for graphs and sequences - Oxford Academic, https://academic.oup.com/bioinformatics/article/35/2/309/5050020
+   26. PepCNN deep learning tool for predicting peptide binding residues in proteins using sequence, structural, and language model features - PubMed, https://pubmed.ncbi.nlm.nih.gov/38016996/
+   27. Protein Language Models (Part 2) - Stephen Malina, https://stephenmalina.com/post/2023-08-05-protein-language-models-part-2/
+   28. Learning the language of protein-protein interactions - PMC - NIH, https://pmc.ncbi.nlm.nih.gov/articles/PMC11956943/
+   29. Protein Language Models Explained for Bench Scientists - Orbion, https://www.orbion.life/blog/protein-language-models-explained-for-bench-scientists
+   30. Protein Language Models: Applications and Perspectives | Journal of Proteome Research, https://pubs.acs.org/doi/10.1021/acs.jproteome.5c00506
+   31. Deep Learning for Protein–peptide binding Prediction: Incorporating Sequence, Structural and Language Model Features | bioRxiv, https://www.biorxiv.org/content/10.1101/2023.09.02.556055v1.full-text
+   32. Kana SHIMIZU | Associate professor | PhD | Waseda University, Tokyo | Sōdai | Department of Computer Science and Engineering | Research profile - ResearchGate, https://www.researchgate.net/profile/Kana-Shimizu
+   33. MoRF_ESM: Prediction of MoRFs in disordered proteins based on a deep transformer protein language model | Journal of Bioinformatics and Computational Biology - World Scientific Publishing, https://www.worldscientific.com/doi/10.1142/S0219720024500069
+   34. EGCPPIS: learning hierarchical equivariant graph representations with contrastive integration for protein–protein interaction site identification - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC12751822/
+   35. DeepRank-GNN: a graph neural network framework to learn patterns in protein–protein interfaces - Oxford Academic, https://academic.oup.com/bioinformatics/article/39/1/btac759/6845451
+   36. GDEGAN: Gaussian Dynamic Equivariant Graph Attention Network for Ligand Binding Site Prediction - arXiv, https://arxiv.org/html/2603.19817
+   37. ASCE-PPIS: a protein–protein interaction sites predictor based on equivariant graph neural network with fusion of structure-aware pooling and graph collapse | Bioinformatics | Oxford Academic, https://academic.oup.com/bioinformatics/article/41/8/btaf423/8211827
+   38. G-RANK: an equivariant graph neural network for the scoring of protein–protein docking models - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC9927558/
+   39. EquiCPI: SE(3)-Equivariant Geometric Deep Learning for Structure-Aware Prediction of Compound-Protein Interactions | Journal of Chemical Information and Modeling - ACS Publications, https://pubs.acs.org/doi/10.1021/acs.jcim.5c00773
+   40. ASCE-PPIS: a protein–protein interaction sites predictor based on equivariant graph neural network with fusion of structure-aw - Oxford Academic, https://academic.oup.com/bioinformatics/article-pdf/41/8/btaf423/63841218/btaf423.pdf
+   41. E(Q)AGNN-PPIS: Attention Enhanced Equivariant Graph Neural Network for Protein-Protein Interaction Site Prediction | bioRxiv, https://www.biorxiv.org/content/10.1101/2024.10.06.616807v2
+   42. Designing Equivariant Graph Neural Network Models for Protein Structure Modeling, https://kdd2025.kdd.org/wp-content/uploads/2025/07/paper_13.pdf
+   43. CASTER-DTA: Equivariant Graph Neural Networks for Predicting Drug-Target Affinity, https://www.biorxiv.org/content/10.1101/2024.11.25.625281v1.full-text
+   44. EquiDock Online | Predicting Protein-Protein Docking - Tamarind Bio, https://www.tamarind.bio/tools/equidock
+   45. Cracking the black box of deep sequence-based protein-protein interaction prediction - bioRxiv, https://www.biorxiv.org/content/10.1101/2023.01.18.524543v1.full.pdf
+   46. Cracking the black box of deep sequence-based protein-protein interaction prediction - bioRxiv, https://www.biorxiv.org/content/10.1101/2023.01.18.524543v3.full.pdf
+   47. A flaw in using pre-trained pLLMs in protein-protein interaction inference models - bioRxiv, https://www.biorxiv.org/content/10.1101/2025.04.21.649858v2.full.pdf
+   48. Topology-Driven Negative Sampling Enhances Generalizability in Protein-Protein Interaction Prediction | bioRxiv, https://www.biorxiv.org/content/10.1101/2024.04.27.591478v1.full-text
+   49. Topology-Driven Negative Sampling Enhances Generalizability in Protein-Protein Interaction Prediction | bioRxiv, https://www.biorxiv.org/content/10.1101/2024.04.27.591478v2.full-text
+   50. Protein Language Models are Accidental Taxonomists - bioRxiv, https://www.biorxiv.org/content/10.1101/2025.10.07.681002v1.full-text
+   51. The Negatome database: a reference set of non-interacting protein pairs - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC2808923/
+   52. Structure-Based Approaches for Protein–Protein Interaction Prediction Using Machine Learning and Deep Learning - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC11763140
+   53. Protein Interaction Analysis - Gene Infinity, https://www.geneinfinity.org/sp/sp_proteininteraction.html
+   54. Protein-protein interaction databases: keeping up with growing interactomes - PMC, https://pmc.ncbi.nlm.nih.gov/articles/PMC3500230/
+   55. iRefIndex: A consolidated protein interaction database with provenance - PMC - NIH, https://pmc.ncbi.nlm.nih.gov/articles/PMC2573892/
+   56. How helpful are the protein-protein interaction databases and which ones? - bioRxiv, https://www.biorxiv.org/content/10.1101/566372v1.full-text
+   57. Protein–protein interaction and pathway databases, a graphical review - Oxford Academic, https://academic.oup.com/bib/article/12/6/702/220708
+   58. (PDF) Plant protein interactomes. Annu Rev Plant Biol - ResearchGate, https://www.researchgate.net/publication/234694699_Plant_protein_interactomes_Annu_Rev_Plant_Biol
+   59. A multimodal human protein embeddings database: DeepDrug Protein Embeddings Bank (DPEB) | Request PDF - ResearchGate, https://www.researchgate.net/publication/404267531_A_multimodal_human_protein_embeddings_database_DeepDrug_Protein_Embeddings_Bank_DPEB
+   60. MEGADOCK: an all-to-all protein-protein interaction prediction system using tertiary structure data - PubMed, https://pubmed.ncbi.nlm.nih.gov/23855673/
+   61. Projects | Ohue Laboratory - Science Tokyo, https://www.li.comp.isct.ac.jp/en/projects
+   62. MEGADOCK-Web: an integrated database of high-throughput structure-based protein-protein interaction predictions - PubMed, https://pubmed.ncbi.nlm.nih.gov/29745830/
+   63. arXiv:2105.03617v1 [q-bio.BM] 8 May 2021, https://arxiv.org/pdf/2105.03617
+   64. Compound-protein interaction prediction with end-to-end learning of neural networks for graphs and sequences - PubMed, https://pubmed.ncbi.nlm.nih.gov/29982330/
+   65. PreBINDS: An Interactive Web Tool to Create Appropriate Datasets for Predicting Compound–Protein Interactions - Frontiers, https://www.frontiersin.org/journals/molecular-biosciences/articles/10.3389/fmolb.2021.758480/full
+   66. Applying deep learning to iterative screening of medium-sized molecules for protein–protein interaction-targeted drug discovery - Chemical Communications (RSC Publishing) DOI:10.1039/D3CC01283B, https://pubs.rsc.org/en/content/articlehtml/2023/cc/d3cc01283b
+   67. PreBINDS: An Interactive Web Tool to Create Appropriate Datasets for Predicting Compound-Protein Interactions - PubMed, https://pubmed.ncbi.nlm.nih.gov/34938773/
+   68. Deep learning integration of molecular and interactome data for protein-compound interaction prediction - PubMed, https://pubmed.ncbi.nlm.nih.gov/33933121/
+   69. Prediction of antibiotic resistance mechanisms using a protein language model | Bioinformatics | Oxford Academic, https://academic.oup.com/bioinformatics/article/40/10/btae550/7754486
+   70. Fujitsu and RIKEN develop AI drug discovery technology utilizing generative AI to predict structural changes in proteins | FirstWord Pharma, https://firstwordpharma.com/story/5788390
+   71. All-In-One Design of Protein Binders - 3DS Blog, https://blog.3ds.com/brands/biovia/all-in-one-design-of-protein-binders/
+   72. Software - Institute for Protein Design - University of Washington, https://www.ipd.uw.edu/software/
+   73. De Novo Protein Binder Design - RFdiffusion - Ranomics, https://www.ranomics.com/technology/rfdiffusion
+   74. Binder Design With RFdiffusion - OpenProtein-Docs documentation, https://dev.docs.openprotein.ai/walkthroughs/Binder_Design_With_RFdiffusion.html
+   75. Dynamics-informed RFdiffusion for de novo design of binders against the KRAS conformational ensemble - PubMed, https://pubmed.ncbi.nlm.nih.gov/41473986/
