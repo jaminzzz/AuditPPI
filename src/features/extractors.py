@@ -76,6 +76,23 @@ def _available_sae_layers(sae_path: Path) -> list[int]:
     return sorted(out)
 
 
+def _configure_esmc_attention_backend(device: str) -> None:
+    """Force PyTorch SDPA when ESM-C runs on CPU.
+
+    The Transformers ESM-C implementation prefers xFormers whenever the
+    package is installed, but xFormers' memory-efficient attention has no CPU
+    kernel. Disabling the optional fused backends for CPU leaves the upstream
+    PyTorch ``scaled_dot_product_attention`` fallback intact without changing
+    the installed Transformers package.
+    """
+    if torch.device(device).type != "cpu":
+        return
+    from transformers.models.esmc import modeling_esmc
+
+    modeling_esmc._xformers_available = False
+    modeling_esmc._flash_attn_available = False
+
+
 def _load_esmc_sae(sae_path: Path, layers: Sequence[int], device: str):
     from transformers import AutoModel
 
@@ -113,6 +130,7 @@ def extract_esmc_features(
 ) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
     from transformers import AutoModel, AutoTokenizer
 
+    _configure_esmc_attention_backend(device)
     requested_layers = sorted(set(int(layer) for layer in layers))
     model_dtype = _torch_dtype(dtype)
     load_kwargs = {
