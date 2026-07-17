@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.data.benchmarks import Benchmark, load_rf2ppi
+from src.data.pairs import Benchmark, load_rf2ppi
 from src.data.sequences import normalize_sequence, read_fasta
 
 

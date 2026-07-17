@@ -20,7 +20,7 @@ from typing import Dict, Optional
 import numpy as np
 
 from src.eval import evaluate_scorer
-from src.data import benchmarks as D
+from src.data import pairs as D
 from src.models.architectures.dual_tower import train_dual_tower
 from src.models.estimators.tabpfn import fit_tabpfn, predict_proba_chunked
 from src.models.estimators.xgboost import fit_xgb

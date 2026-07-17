@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import spearmanr
 
-from src.data import benchmarks as benchmark_data
+from src.data import pairs as benchmark_data
 from src.eval import evaluate_scorer
 from src.eval.metrics import participation_t
 from src.models.estimators.xgboost import fit_xgb_regressor

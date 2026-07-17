@@ -6,7 +6,7 @@ from typing import Callable, Dict, Hashable
 
 import numpy as np
 
-from src.data.benchmarks import Benchmark
+from src.data.pairs import Benchmark
 from src.eval.metrics import auprc
 from src.eval.participation import _safe_auroc
 

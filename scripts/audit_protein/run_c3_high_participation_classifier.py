@@ -31,7 +31,7 @@ from conf.paths import AUDIT
 from src.eval.metrics import participation_t
 from src.eval.classification import binary_classification_metrics
 from src.models.estimators.xgboost import fit_xgb_classifier
-from src.data import benchmarks as D
+from src.data import pairs as D
 from src.ppi_fingerprint import features as FE
 from src.participation.predictor import CACHE, assemble_protein_features
 

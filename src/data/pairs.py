@@ -1,9 +1,10 @@
-"""Benchmark data objects and loaders used across AuditPPI.
+"""Pair-level benchmark data objects and loaders used across AuditPPI.
 
-All loaders return the same :class:`Benchmark` object so evaluation,
+All pair loaders return the same :class:`Benchmark` object so evaluation,
 participation diagnostics, and fingerprint baselines can share one data
-contract. Optional heavy dependencies (``h5py``, ``hdf5plugin``, and pandas)
-are imported only by the loader that needs them.
+contract. Protein-level datasets live in :mod:`src.data.proteins`. Optional
+heavy dependencies (``h5py``, ``hdf5plugin``, and pandas) are imported only by
+the loader that needs them.
 """
 
 from __future__ import annotations
@@ -18,8 +19,11 @@ import numpy as np
 
 from conf.paths import (
     BENCHMARK_TSV as RF2PPI_TSV,
+    BERNETT_DIR,
+    BERNETT_SPLIT_CSVS,
     C3_H5,
     CROSS_SPECIES_DIR,
+    PRING_ROOT,
     RF2PPI_FASTA,
 )
 from src.data.sequences import read_fasta
@@ -185,8 +189,121 @@ def list_cross_species() -> list[str]:
     return list(CROSS_SPECIES_CSV)
 
 
+def _bernett_clean_seq(sequence: str) -> str:
+    """Mirror the MINT Bernett cache cleaning (``*``/``f`` dropped, ``J``→``L``)."""
+    return str(sequence).replace("*", "").replace("f", "").replace("J", "L")
+
+
+def _bernett_seq_id(sequence: str) -> str:
+    """Stable per-sequence endpoint id (Bernett CSVs carry no protein ids)."""
+    return "bn_" + hashlib.sha1(sequence.encode()).hexdigest()[:16]
+
+
+def load_bernett(split: str = "test", attach_seqs: bool = True) -> Benchmark:
+    """Load one Bernett gold-standard split (MINT GeneralPPI ``Intra{1,0,2}``).
+
+    The ``{split}_seqs.csv`` files carry only ``seq1``/``seq2``/``labels`` (no
+    protein ids), so endpoints are keyed by a stable ``bn_`` sequence hash after
+    applying the same cleaning as the caching script.
+    """
+    import pandas as pd
+
+    if split not in BERNETT_SPLIT_CSVS:
+        raise ValueError(f"unknown Bernett split {split!r}; choose from {list(BERNETT_SPLIT_CSVS)}")
+    frame = pd.read_csv(BERNETT_DIR / BERNETT_SPLIT_CSVS[split], usecols=["seq1", "seq2", "labels"])
+    pairs: list[Pair] = []
+    seqs: dict[str, str] = {}
+    for sequence_a, sequence_b in zip(frame["seq1"].astype(str), frame["seq2"].astype(str)):
+        clean_a, clean_b = _bernett_clean_seq(sequence_a), _bernett_clean_seq(sequence_b)
+        id_a, id_b = _bernett_seq_id(clean_a), _bernett_seq_id(clean_b)
+        pairs.append((id_a, id_b))
+        if attach_seqs:
+            seqs[id_a] = clean_a
+            seqs[id_b] = clean_b
+    labels = frame["labels"].astype(int).to_numpy()
+    return Benchmark(f"bernett_{split}", pairs, labels, seqs)
+
+
+PRING_METHODS = ("BFS", "DFS", "RANDOM_WALK")
+PRING_CROSS_SPECIES = ("yeast", "ecoli", "arath")
+
+
+def _read_pring_pair_file(path: Path) -> tuple[list[Pair], np.ndarray]:
+    """Parse a labelled PRING pair file (``id_a  id_b  label``), matching the audit."""
+    pairs: list[Pair] = []
+    labels: list[int] = []
+    with path.open() as handle:
+        for line in handle:
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            pairs.append((parts[0], parts[1]))
+            labels.append(int(parts[2]))
+    return pairs, np.asarray(labels, dtype=int)
+
+
+def _load_pring_pair_sequences(species: str, root: Path) -> dict[str, str]:
+    """Read ``{species}_protein_id.csv`` (uniprot_id → sequence)."""
+    import pandas as pd
+
+    frame = pd.read_csv(root / species / f"{species}_protein_id.csv", usecols=["uniprot_id", "sequence"])
+    return {
+        str(identifier): str(sequence)
+        for identifier, sequence in zip(frame["uniprot_id"], frame["sequence"])
+    }
+
+
+def load_pring_pairs(
+    species: str = "human",
+    split: str = "test",
+    method: str = "BFS",
+    *,
+    root: Path = PRING_ROOT,
+    attach_seqs: bool = True,
+) -> Benchmark:
+    """Load a PRING pair benchmark (UniProt-keyed).
+
+    Human has ``train``/``val``/``test`` splits per sampling ``method``
+    (``human/{METHOD}/human_{split}_ppi.txt``). Cross-species graphs
+    (yeast/ecoli/arath) are test-only (``{sp}_test_ppi.txt``); they accept only
+    ``split="test"`` and ignore ``method``. Endpoint sequences come from
+    ``{species}_protein_id.csv`` when ``attach_seqs`` is set.
+    """
+    species = species.lower()
+    if species == "human":
+        method = method.upper()
+        if method not in PRING_METHODS:
+            raise ValueError(f"method must be one of {PRING_METHODS}")
+        if split not in {"train", "val", "test"}:
+            raise ValueError("human split must be train, val, or test")
+        path = root / "human" / method / f"human_{split}_ppi.txt"
+        name = f"pring_human_{method}_{split}"
+    elif species in PRING_CROSS_SPECIES:
+        if split != "test":
+            raise ValueError(f"{species!r} PRING graph is test-only; use split='test'")
+        path = root / species / f"{species}_test_ppi.txt"
+        name = f"pring_{species}_test"
+    else:
+        raise ValueError(
+            f"unknown PRING species {species!r} (human | {' | '.join(PRING_CROSS_SPECIES)})"
+        )
+
+    pairs, labels = _read_pring_pair_file(path)
+    seqs: dict[str, str] = {}
+    if attach_seqs:
+        all_seqs = _load_pring_pair_sequences(species, root)
+        needed = {endpoint for pair in pairs for endpoint in pair}
+        seqs = {identifier: all_seqs[identifier] for identifier in needed if identifier in all_seqs}
+    return Benchmark(name, pairs, labels, seqs)
+
+
 def load_benchmark(name: str, *, attach_seqs: bool = True) -> Benchmark:
-    """Dispatch ``rf2ppi``, ``c1[:split]``, ``c2[:split]``, ``c3[:split]``, or ``cross_species:x``."""
+    """Dispatch pair benchmarks by string key.
+
+    Supports ``rf2ppi``, ``c1[:split]``, ``c2[:split]``, ``c3[:split]``,
+    ``cross_species:species``, ``bernett[:split]``, and
+    ``pring:species[:split[:method]]``.
+    """
     key, _, argument = name.partition(":")
     if key == "rf2ppi":
         return load_rf2ppi(attach_seqs=attach_seqs)
@@ -194,19 +311,34 @@ def load_benchmark(name: str, *, attach_seqs: bool = True) -> Benchmark:
         return load_clevel(key, split=argument or "test", attach_seqs=attach_seqs)
     if key == "cross_species":
         return load_cross_species(species=argument or "human_test", attach_seqs=attach_seqs)
+    if key == "bernett":
+        return load_bernett(split=argument or "test", attach_seqs=attach_seqs)
+    if key == "pring":
+        species, _, rest = argument.partition(":")
+        split, _, method = rest.partition(":")
+        return load_pring_pairs(
+            species=species or "human",
+            split=split or "test",
+            method=method or "BFS",
+            attach_seqs=attach_seqs,
+        )
     raise ValueError(
         f"unknown benchmark {name!r} (rf2ppi | c1[:split] | c2[:split] | c3[:split] | "
-        "cross_species:species)"
+        "cross_species:species | bernett[:split] | pring:species[:split[:method]])"
     )
 
 
 __all__ = [
     "Benchmark",
     "CROSS_SPECIES_CSV",
+    "PRING_CROSS_SPECIES",
+    "PRING_METHODS",
     "load_benchmark",
+    "load_bernett",
     "load_c3",
     "load_clevel",
     "load_cross_species",
+    "load_pring_pairs",
     "load_rf2ppi",
     "list_cross_species",
 ]

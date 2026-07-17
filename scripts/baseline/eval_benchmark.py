@@ -20,7 +20,7 @@ from pathlib import Path
 
 from conf.paths import AUDIT
 from src.eval.participation import benchmark_diagnostic
-from src.data.benchmarks import list_cross_species, load_benchmark
+from src.data.pairs import list_cross_species, load_benchmark
 
 
 def run_one(name: str, out_dir: Path) -> dict:

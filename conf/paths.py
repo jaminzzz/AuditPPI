@@ -145,7 +145,16 @@ BERNETT_DIR = BASELINES / "mint" / "downstream" / "GeneralPPI" / "ppi"
 BERNETT_SPLIT_CSVS = {"train": "Intra1_seqs.csv", "val": "Intra0_seqs.csv", "test": "Intra2_seqs.csv"}
 
 PRING_ROOT = BASELINES / "PRING" / "data_process" / "pring_dataset"
-PIC_DATA = BASELINES / "PIC" / "data" / "human_data.pkl"
+# PIC (Protein Importance Calculator) essentiality data: one pickle per dataset
+# with columns ID / sequence / {label columns}. PIC_DATA kept for back-compat
+# (the human_data.pkl the cache script defaults to).
+PIC_DATA_DIR = BASELINES / "PIC" / "data"
+PIC_DATA = PIC_DATA_DIR / "human_data.pkl"
+PIC_DATASET_PKL = {
+    "human": PIC_DATA_DIR / "human_data.pkl",
+    "mouse": PIC_DATA_DIR / "mouse_data.pkl",
+    "cell": PIC_DATA_DIR / "cell_data.pkl",
+}
 
 # PRING cross-species generalization: train the participation oracle on human,
 # zero-shot test on the held-out species (each has its own full {sp}_graph.pkl
@@ -201,7 +210,7 @@ __all__ = [
     "RAPPPID_CLEVEL_CSVS",
     "CROSS_SPECIES_DIR",
     "BERNETT_DIR", "BERNETT_SPLIT_CSVS",
-    "PRING_ROOT", "PIC_DATA",
+    "PRING_ROOT", "PIC_DATA", "PIC_DATA_DIR", "PIC_DATASET_PKL",
     "PRING_PARTICIPATION_DIR", "PRING_TRAIN_SPECIES", "PRING_CROSS_SPECIES",
     "PRING_HUMAN_SAE_CACHE", "PRING_SPECIES_SAE_CACHES",
     "ESMC_MODEL", "ESMC_SAE",

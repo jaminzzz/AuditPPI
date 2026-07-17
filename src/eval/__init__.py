@@ -9,10 +9,10 @@ This package is model- and dataset-agnostic:
   - `participation`  — benchmark diagnostic (t(p) stats); needs only (pairs, labels).
   - `scoring`        — evaluate any pair-scorer (AUROC/AUPRC).
 
-Benchmark objects and concrete loaders live in :mod:`src.data.benchmarks`.
+Benchmark objects and concrete loaders live in :mod:`src.data.pairs`.
 """
 
-from src.data.benchmarks import Benchmark
+from src.data.pairs import Benchmark
 from src.eval.metrics import (
     auprc,
     pair_score_metrics,
