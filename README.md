@@ -39,11 +39,11 @@ AuditPPI/
 │   ├── interpretability/  SAE/model attribution, retrieval, and feature explanations.
 │   ├── models/            Reusable architectures + external estimator integrations.
 │   ├── runtime/           Device selection and executable runtime setup.
+│   ├── experiments/       Uniform result envelope + run provenance capture.
 │   └── ppi_fingerprint/   PPI fingerprint features, protocol config, and orchestration.
 ├── scripts/               Pipeline, grouped by audit stage (see below).
 ├── tests/                 CPU unit tests for data, features, models, and analyses.
-├── manuscripts/figures/   Final figures (SVG/PDF/PNG) written by scripts/figures/.
-└── environment/envs.md    Conda environments + which env each script needs.
+└── manuscripts/figures/   Final figures (SVG/PDF/PNG) written by scripts/figures/.
 ```
 
 ### Path configuration
@@ -114,7 +114,8 @@ Three of them supply audit inputs, wired through `conf/paths.py`:
 
 ## Scripts by stage
 
-Run with the conda env noted in `environment/envs.md`; most use `genmol`.
+Run all project-owned workflows with the conda env that owns the dependencies
+(see `pyproject.toml` for the required packages).
 
 **`features/`** — dataset-neutral formal feature extraction. It produces
 ESM-C layers 60/80 dense mean/max and SAE mean/max/binary features, or ESM-2
@@ -160,8 +161,8 @@ and contact-pair compatibility on PDB_PPI structures.
 ## Quick start / reproduction
 
 ```bash
-# 0. pick a python (see environment/envs.md); genmol covers most scripts
-PY=/data/wmzhu/anaconda3/envs/genmol/bin/python
+# 0. use the conda env that owns the dependencies (see pyproject.toml)
+PY=/data/wmzhu/anaconda3/envs/E1/bin/python
 
 # 1. one-time: install the project as an editable package so `conf` and `src`
 #    import from anywhere (deps stay owned by the conda env, hence --no-deps).
