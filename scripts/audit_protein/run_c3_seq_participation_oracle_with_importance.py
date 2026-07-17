@@ -15,24 +15,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from conf.paths import AUDIT, FEATURE_TABLE  # noqa: E402
-from src.eval import evaluate_scorer  # noqa: E402
-from src.eval.metrics import participation_t  # noqa: E402
-from src.models.estimators.xgboost import fit_xgb_regressor  # noqa: E402
-from src.data import benchmarks as D  # noqa: E402
-from src.ppi_fingerprint import features as FE  # noqa: E402
-from src.participation.predictor import (  # noqa: E402
+from conf.paths import AUDIT, FEATURE_TABLE
+from src.eval import evaluate_scorer
+from src.eval.metrics import participation_t
+from src.models.estimators.xgboost import fit_xgb_regressor
+from src.data import benchmarks as D
+from src.ppi_fingerprint import features as FE
+from src.participation.predictor import (
     CACHE,
     TEST,
     TRAINVAL,

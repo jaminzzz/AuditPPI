@@ -14,7 +14,6 @@ import gc
 import json
 import math
 import os
-import sys
 import time
 from pathlib import Path
 
@@ -26,24 +25,21 @@ os.environ.setdefault("TABPFN_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-from conf.paths import (  # noqa: E402
+from conf.paths import (
     AUDIT,
     RAPPPID_C3_DIR,
     SAE_REPS_BINARY,
     TABPFN_RANKING,
 )
-from src.runtime import setup_device  # noqa: E402
-from src.analysis.cross_species_probe import (  # noqa: E402
+from src.runtime import setup_device
+from src.analysis.cross_species_probe import (
     build_dense_sym_topk,
     classification_metrics as metrics,
     predict_proba_chunked,
     read_feature_ranking as read_ranking,
     select_top_features,
 )
-from src.interpretability.tabpfn_retrieval import (  # noqa: E402
+from src.interpretability.tabpfn_retrieval import (
     decoder_attention_weights,
     embeddings_with_configs,
     input_overlap_stats,
@@ -51,7 +47,7 @@ from src.interpretability.tabpfn_retrieval import (  # noqa: E402
     read_split_csv,
     top_shared_features,
 )
-from src.models.estimators.tabpfn import fit_tabpfn  # noqa: E402
+from src.models.estimators.tabpfn import fit_tabpfn
 
 
 DEFAULT_EMBEDDING_DIR = SAE_REPS_BINARY

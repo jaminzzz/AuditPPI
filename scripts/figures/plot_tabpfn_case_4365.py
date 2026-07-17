@@ -8,13 +8,9 @@ It uses existing retrieval CSVs; it does not train or rerun TabPFN.
 from __future__ import annotations
 
 import csv
-import sys
 from pathlib import Path
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-from conf.paths import TABPFN_RETRIEVAL as RETRIEVAL_DIR, AUDIT  # noqa: E402
+from conf.paths import TABPFN_RETRIEVAL as RETRIEVAL_DIR, AUDIT
 
 OUT = AUDIT / "ppi_fingerprint" / "tabpfn_case_4365_retrieval.svg"
 

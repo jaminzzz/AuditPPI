@@ -7,30 +7,25 @@ import argparse
 import csv
 import gc
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 
-ROOT = next(path for path in Path(__file__).resolve().parents if (path / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from conf.paths import (  # noqa: E402
+from conf.paths import (
     RAPPPID_C3_DIR,
     SAE_REPS_BINARY,
     TABPFN_RANKING,
     TABPFN_RETRIEVAL,
 )
-from src.runtime import setup_device  # noqa: E402
-from src.analysis.cross_species_probe import (  # noqa: E402
+from src.runtime import setup_device
+from src.analysis.cross_species_probe import (
     build_dense_sym_topk,
     fit_tabpfn_probe,
     predict_proba_chunked,
     read_feature_ranking,
     select_top_features,
 )
-from src.interpretability.tabpfn_retrieval import (  # noqa: E402
+from src.interpretability.tabpfn_retrieval import (
     choose_queries,
     decoder_attention_weights,
     embeddings_with_configs,

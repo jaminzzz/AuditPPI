@@ -7,18 +7,14 @@ import argparse
 import csv
 import gc
 import json
-import sys
 import time
 from pathlib import Path
 
 import numpy as np
 
-ROOT = next(path for path in Path(__file__).resolve().parents if (path / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from src.runtime import setup_device  # noqa: E402
-from src.analysis.cross_species_probe import (  # noqa: E402
+from conf.paths import ROOT
+from src.runtime import setup_device
+from src.analysis.cross_species_probe import (
     build_dense_sym_topk,
     classification_metrics,
     evaluate_species,

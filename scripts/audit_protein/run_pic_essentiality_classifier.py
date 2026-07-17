@@ -31,20 +31,15 @@ import argparse
 import json
 import pickle
 import random
-import sys
 from pathlib import Path
 from typing import Mapping, Sequence
 
 import numpy as np
 
-_ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-from conf.paths import AUDIT, PIC_DATA  # noqa: E402
-from src.eval.classification import binary_classification_metrics  # noqa: E402
-from src.models.estimators.xgboost import fit_xgb_classifier  # noqa: E402
-from src.participation.features import sequence_features  # noqa: E402
+from conf.paths import AUDIT, PIC_DATA
+from src.eval.classification import binary_classification_metrics
+from src.models.estimators.xgboost import fit_xgb_classifier
+from src.participation.features import sequence_features
 
 DEFAULT_CACHE = AUDIT / "pic_essentiality" / "pic_human_esmc_sae_cache.pt"
 OUT_DIR = AUDIT / "pic_essentiality"

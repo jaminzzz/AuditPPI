@@ -19,7 +19,6 @@ import argparse
 import json
 import os
 import random
-import sys
 from pathlib import Path
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-auditppi")
@@ -29,17 +28,13 @@ import pandas as pd
 import torch
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from conf.paths import AUDIT, SAE_REPS as SAE_REP_ROOT  # noqa: E402
-from src.interpretability.annotations import add_sae_annotations  # noqa: E402
-from src.interpretability.ebm_effects import (  # noqa: E402
+from conf.paths import AUDIT, SAE_REPS as SAE_REP_ROOT
+from src.interpretability.annotations import add_sae_annotations
+from src.interpretability.ebm_effects import (
     ebm_feature_tables,
     endpoint_matrix,
 )
-from src.models.estimators.ebm import (  # noqa: E402
+from src.models.estimators.ebm import (
     endpoint_pair_predictions,
     make_endpoint_ebm,
 )

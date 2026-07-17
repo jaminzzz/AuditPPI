@@ -21,17 +21,13 @@ import csv
 import gzip
 import json
 import os
-import sys
 import tempfile
 from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-from conf.paths import AUDIT  # noqa: E402
+from conf.paths import AUDIT
 
 THREE2ONE = {
     "ALA": "A",

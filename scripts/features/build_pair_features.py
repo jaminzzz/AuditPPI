@@ -4,16 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import torch
 
-ROOT = next(path for path in Path(__file__).resolve().parents if (path / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from src.features.pairs import (  # noqa: E402
+from src.features.pairs import (
     PAIR_MODES,
     build_pair_payload,
     load_feature_cache,

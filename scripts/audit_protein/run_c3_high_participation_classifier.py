@@ -22,23 +22,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Mapping, Sequence
 
 import numpy as np
 
-_ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-from conf.paths import AUDIT  # noqa: E402
-from src.eval.metrics import participation_t  # noqa: E402
-from src.eval.classification import binary_classification_metrics  # noqa: E402
-from src.models.estimators.xgboost import fit_xgb_classifier  # noqa: E402
-from src.data import benchmarks as D  # noqa: E402
-from src.ppi_fingerprint import features as FE  # noqa: E402
-from src.participation.predictor import CACHE, assemble_protein_features  # noqa: E402
+from conf.paths import AUDIT
+from src.eval.metrics import participation_t
+from src.eval.classification import binary_classification_metrics
+from src.models.estimators.xgboost import fit_xgb_classifier
+from src.data import benchmarks as D
+from src.ppi_fingerprint import features as FE
+from src.participation.predictor import CACHE, assemble_protein_features
 
 
 OUT_DIR = AUDIT / "c3_high_participation"

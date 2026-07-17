@@ -31,7 +31,6 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -39,10 +38,8 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-_ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-sys.path.insert(0, str(_ROOT))
-from conf.paths import ESMC_MODEL, ESMC_SAE, PRING_ROOT, AUDIT, ROSETTA_SEQ_CACHE  # noqa: E402
-from src.data.sequences import read_fasta  # noqa: E402
+from conf.paths import ESMC_MODEL, ESMC_SAE, PRING_ROOT, AUDIT, ROSETTA_SEQ_CACHE
+from src.data.sequences import read_fasta
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE

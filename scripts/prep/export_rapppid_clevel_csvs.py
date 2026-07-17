@@ -27,13 +27,9 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 from pathlib import Path
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-from conf.paths import C3_H5, RAPPPID_CLEVEL_CSVS  # noqa: E402
+from conf.paths import C3_H5, RAPPPID_CLEVEL_CSVS
 
 
 def _load_id2seq(h5_path: Path) -> dict[str, str]:

@@ -14,15 +14,10 @@ import argparse
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
-_ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-from src.ppi_fingerprint.config import MODEL_NAMES as MODELS  # noqa: E402
-from src.ppi_fingerprint.config import REPRESENTATIONS as REPS  # noqa: E402
+from src.ppi_fingerprint.config import MODEL_NAMES as MODELS
+from src.ppi_fingerprint.config import REPRESENTATIONS as REPS
 
 HEADLINE_EVALS = ("c3:test", "cross_species:human_test", "rf2ppi")
 SPECIES_EVALS = tuple(f"cross_species:{s}" for s in ("ecoli", "fly", "mouse", "worm", "yeast"))

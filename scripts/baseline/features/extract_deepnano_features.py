@@ -11,16 +11,11 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 
-ROOT = next(path for path in Path(__file__).resolve().parents if (path / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from conf.paths import DEEPNANO_DIR, ESM2_650M_MODEL, ESMC_MODEL  # noqa: E402
-from src.features.manifest import load_protein_manifest  # noqa: E402
+from conf.paths import DEEPNANO_DIR, ESM2_650M_MODEL, ESMC_MODEL
+from src.features.manifest import load_protein_manifest
 
 
 def comma_list(value: str) -> list[str]:

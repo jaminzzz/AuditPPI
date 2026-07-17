@@ -31,12 +31,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-import sys as _sys
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in _sys.path:
-    _sys.path.insert(0, str(ROOT))
-
-from conf.paths import AUDIT, FEATURE_TABLE, FIGURES  # noqa: E402
+from conf.paths import AUDIT, FEATURE_TABLE, FIGURES
 
 HUMAN_CACHE = AUDIT / "pring_participation" / "pring_human_esmc_sae_cache.pt"
 OUT_FIG = FIGURES

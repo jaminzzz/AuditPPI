@@ -10,26 +10,21 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
-import sys
 from pathlib import Path
 
-ROOT = next(path for path in Path(__file__).resolve().parents if (path / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from conf.paths import (  # noqa: E402
+from conf.paths import (
     ESM2_650M_MODEL,
     ESM2_SAE_CKPT,
     ESMC_MODEL,
     ESMC_SAE,
     INTERPLM_ROOT,
 )
-from src.features.extractors import (  # noqa: E402
+from src.features.extractors import (
     extract_esmc_features,
     extract_esm2_features,
     save_feature_cache,
 )
-from src.features.manifest import load_protein_manifest  # noqa: E402
+from src.features.manifest import load_protein_manifest
 
 
 def pick_gpu() -> str:

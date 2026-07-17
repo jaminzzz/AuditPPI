@@ -10,23 +10,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 
-_ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-from src.participation import (  # noqa: E402
+from src.participation import (
     FORMAL_FEATURE_KINDS,
     METHODS,
     OUT_DIR,
     PRING_ROOT,
     full_graph_participation_labels,
 )
-from src.eval.classification import safe_auprc, safe_auroc  # noqa: E402
+from src.eval.classification import safe_auprc, safe_auroc
 
 PAIR_SETS = ("human_test", "all_test", "human_val", "human_train")
 SCORE_MODES = ("min", "product", "mean")

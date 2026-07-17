@@ -22,13 +22,9 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 from pathlib import Path
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-from conf.paths import RAPPPID_C3_DIR as CSV_DIR, C3_H5, AUDIT  # noqa: E402
+from conf.paths import RAPPPID_C3_DIR as CSV_DIR, C3_H5, AUDIT
 
 OUT_DIR = AUDIT / "negative_sampling_audit"
 

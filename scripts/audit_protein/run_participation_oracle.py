@@ -10,14 +10,9 @@ Run: PYTHONPATH=. /data/wmzhu/anaconda3/envs/genmol/bin/python scripts/run_parti
      [--family c3|cross_species] [--rep sae_max|binary|esmc_mean] [--no-write]
 """
 import argparse
-import sys
 from pathlib import Path
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from src.participation.predictor import run_participation_oracle  # noqa: E402
+from src.participation.predictor import run_participation_oracle
 
 
 def main() -> None:

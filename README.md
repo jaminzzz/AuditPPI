@@ -52,8 +52,9 @@ Every script resolves paths through `conf/paths.py`. There are **no hardcoded
 absolute paths** in `scripts/` or `src/`. To relocate the project or repoint a
 data source, edit `conf/paths.py` or the entries under `external/` — nothing else.
 
-Scripts bootstrap the import root by walking up to the `.project-root` anchor, so
-they work regardless of which `scripts/<group>/` subfolder they live in.
+After a one-time `pip install -e . --no-deps`, `conf` and `src` are importable
+from any directory, so scripts carry no `sys.path` bootstrap and work regardless
+of which `scripts/<group>/` subfolder they live in.
 
 Main downstream models live under `src/models/`: project-owned PyTorch modules
 are in `architectures/`, while third-party `fit/predict` integrations are in
@@ -162,18 +163,24 @@ and contact-pair compatibility on PDB_PPI structures.
 # 0. pick a python (see environment/envs.md); genmol covers most scripts
 PY=/data/wmzhu/anaconda3/envs/genmol/bin/python
 
-# 1. sanity check: participation-oracle math + real RF2-PPI load (no GPU)
+# 1. one-time: install the project as an editable package so `conf` and `src`
+#    import from anywhere (deps stay owned by the conda env, hence --no-deps).
+$PY -m pip install -e . --no-deps
+
+# 2. sanity check: participation-oracle math + real RF2-PPI load (no GPU)
 $PY scripts/smoke/smoke_eval.py
 
-# 2. reproduce a baseline (pooled SAE fingerprint + classifier)
-PYTHONPATH=. $PY scripts/baseline/run_ppi_fingerprint_baseline.py --help
+# 3. reproduce a baseline (pooled SAE fingerprint + classifier)
+$PY scripts/baseline/run_ppi_fingerprint_baseline.py --help
 
-# 3. regenerate the main figures from cached source data
-PYTHONPATH=. $PY scripts/figures/plot_audit_figures.py
+# 4. regenerate the main figures from cached source data
+$PY scripts/figures/plot_audit_figures.py
 ```
 
-Scripts insert `ROOT` onto `sys.path` themselves, but running from the project
-root with `PYTHONPATH=.` is the safe default.
+After `pip install -e .`, `conf` and `src` resolve from any working directory —
+no `PYTHONPATH=.` and no per-script `sys.path` bootstrap. `conf.paths.ROOT`
+still anchors on the `.project-root` marker, so relocating the project needs no
+code change (just re-run the editable install).
 
 ### Figure ↔ source-data map
 

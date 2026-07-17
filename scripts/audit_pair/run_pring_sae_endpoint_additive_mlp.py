@@ -25,13 +25,8 @@ import pandas as pd
 import torch
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
-import sys as _sys
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in _sys.path:
-    _sys.path.insert(0, str(ROOT))
-
-from conf.paths import AUDIT, PRING_ROOT  # noqa: E402
-from src.models.architectures.endpoint_mlp import EndpointMLP  # noqa: E402
+from conf.paths import AUDIT, PRING_ROOT
+from src.models.architectures.endpoint_mlp import EndpointMLP
 
 HUMAN_CACHE = AUDIT / "pring_participation" / "pring_human_esmc_sae_cache.pt"
 OUT_DIR = AUDIT / "pring_endpoint_additive_mlp_sae"

@@ -31,17 +31,12 @@ import pandas as pd
 import torch
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
-import sys as _sys
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in _sys.path:
-    _sys.path.insert(0, str(ROOT))
-
-from conf.paths import AUDIT, SAE_REPS as SAE_REP_ROOT  # noqa: E402
-from src.interpretability.annotations import add_sae_annotations  # noqa: E402
-from src.interpretability.attribution import (  # noqa: E402
+from conf.paths import AUDIT, SAE_REPS as SAE_REP_ROOT
+from src.interpretability.annotations import add_sae_annotations
+from src.interpretability.attribution import (
     endpoint_gradient_input_attribution,
 )
-from src.models.architectures.endpoint_mlp import EndpointMLP  # noqa: E402
+from src.models.architectures.endpoint_mlp import EndpointMLP
 
 OUT_DIR = AUDIT / "c3_endpoint_additive_mlp_sae"
 

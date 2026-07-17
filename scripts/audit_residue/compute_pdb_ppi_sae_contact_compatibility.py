@@ -35,11 +35,8 @@ import numpy as np
 from scipy.spatial import cKDTree
 from scipy.stats import hypergeom
 
-_ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-from conf.paths import AUDIT, FEATURE_TABLE, PPI_DATA  # noqa: E402
-from src.data.sae_cache import SaeCacheReader  # noqa: E402
+from conf.paths import AUDIT, FEATURE_TABLE, PPI_DATA
+from src.data.sae_cache import SaeCacheReader
 
 DEFAULT_DATA_ROOT = PPI_DATA
 DEFAULT_SURFACE_SIDES = (

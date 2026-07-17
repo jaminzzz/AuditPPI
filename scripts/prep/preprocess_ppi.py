@@ -40,10 +40,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 from pathlib import Path
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-from conf.paths import PPI_DATA  # noqa: E402
+from conf.paths import PPI_DATA
 
 # --------------------------------------------------------------------------- constants
 DEFAULT_DATA_ROOT = str(PPI_DATA)

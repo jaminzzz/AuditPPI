@@ -31,9 +31,7 @@ from pathlib import Path
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
-_ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-sys.path.insert(0, str(_ROOT))
-from conf.paths import (  # noqa: E402
+from conf.paths import (
     ESM2_650M_MODEL, ESM2_SAE_CKPT, INTERPLM_ROOT, ESM2_SEQ_CACHE,
     C3_TRAIN_CSV, C3_VAL_CSV, C3_TEST_CSV,
 )

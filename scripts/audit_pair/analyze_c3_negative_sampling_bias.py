@@ -43,12 +43,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-auditppi")
 import numpy as np
 import pandas as pd
 
-import sys as _sys
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in _sys.path:
-    _sys.path.insert(0, str(ROOT))
-
-from conf.paths import AUDIT, SAE_REPS as SAE_REP_ROOT  # noqa: E402
+from conf.paths import AUDIT, SAE_REPS as SAE_REP_ROOT
 
 REP_DIR = {"sae_max": SAE_REP_ROOT / "sae_max", "binary": SAE_REP_ROOT / "binary_thr0"}
 ALIGN_DIR = AUDIT / "negative_sampling_audit"
@@ -150,10 +145,7 @@ def main() -> None:
         }
 
     # --- (2) degree bias -------------------------------------------------------------
-    import sys
-
-    sys.path.insert(0, str(ROOT))
-    from src.eval.metrics import participation_t  # noqa: E402
+    from src.eval.metrics import participation_t
 
     pairs = list(zip(align["id_a"], align["id_b"]))
     _, degree = participation_t(pairs, y)  # degree[p] = #pairs touching p in THIS split

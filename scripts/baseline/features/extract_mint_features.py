@@ -17,12 +17,8 @@ import time
 from collections import OrderedDict
 from pathlib import Path
 
-ROOT = next(path for path in Path(__file__).resolve().parents if (path / ".project-root").exists())
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from conf.paths import BASELINES  # noqa: E402
-from src.features.baseline_io import (  # noqa: E402
+from conf.paths import BASELINES
+from src.features.baseline_io import (
     count_pair_rows,
     iter_pair_rows,
     save_baseline_pair_cache,

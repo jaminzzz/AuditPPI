@@ -45,12 +45,7 @@ import torch
 from scipy.stats import mannwhitneyu
 from sklearn.metrics import roc_auc_score
 
-import sys as _sys
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in _sys.path:
-    _sys.path.insert(0, str(ROOT))
-
-from conf.paths import AUDIT, SAE_REPS as REP_ROOT  # noqa: E402
+from conf.paths import AUDIT, SAE_REPS as REP_ROOT
 
 AUDIT_DIR = AUDIT / "negative_sampling_audit"
 SAE_MAX_DIR = REP_ROOT / "sae_max"

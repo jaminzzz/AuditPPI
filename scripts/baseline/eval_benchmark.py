@@ -16,16 +16,11 @@ A trained AuditPPI model plugs in later via ``src.eval.evaluate_scorer(scorer, b
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
-_ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-from conf.paths import AUDIT  # noqa: E402
-from src.eval.participation import benchmark_diagnostic  # noqa: E402
-from src.data.benchmarks import list_cross_species, load_benchmark  # noqa: E402
+from conf.paths import AUDIT
+from src.eval.participation import benchmark_diagnostic
+from src.data.benchmarks import list_cross_species, load_benchmark
 
 
 def run_one(name: str, out_dir: Path) -> dict:

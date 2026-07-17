@@ -34,11 +34,8 @@ import pandas as pd
 from matplotlib import gridspec, patches
 from matplotlib.colors import LinearSegmentedColormap
 
-import sys as _sys
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in _sys.path:
-    _sys.path.insert(0, str(ROOT))
-from conf.paths import AUDIT, FIGURES, SAE_SUPP_INPUTS  # noqa: E402
+from conf.paths import ROOT
+from conf.paths import AUDIT, FIGURES, SAE_SUPP_INPUTS
 
 # precomputed results/propensity JSONs (was SAE_PPI/ppi_fingerprint/outputs/)
 SAE_OUT = SAE_SUPP_INPUTS

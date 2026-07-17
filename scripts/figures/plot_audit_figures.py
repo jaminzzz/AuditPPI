@@ -27,12 +27,7 @@ from matplotlib import patches
 from matplotlib.lines import Line2D
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 
-import sys as _sys
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(ROOT) not in _sys.path:
-    _sys.path.insert(0, str(ROOT))
-
-from conf.paths import AUDIT as DATA, FIGURES as OUT  # noqa: E402
+from conf.paths import AUDIT as DATA, FIGURES as OUT
 
 OUT.mkdir(parents=True, exist_ok=True)
 

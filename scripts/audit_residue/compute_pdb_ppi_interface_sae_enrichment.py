@@ -18,17 +18,13 @@ import gzip
 import json
 import math
 import os
-import sys
 from pathlib import Path
 
 import numpy as np
 from scipy.stats import fisher_exact
 
-_ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-from conf.paths import AUDIT  # noqa: E402
-from src.data.sae_cache import SaeCacheReader  # noqa: E402
+from conf.paths import AUDIT
+from src.data.sae_cache import SaeCacheReader
 
 
 def parse_args() -> argparse.Namespace:

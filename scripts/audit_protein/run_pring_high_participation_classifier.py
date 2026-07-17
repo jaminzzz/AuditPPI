@@ -14,24 +14,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Mapping, Sequence
 
 import numpy as np
 
-_ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-from src.data.sequences import read_fasta  # noqa: E402
-from src.eval.classification import (  # noqa: E402
+from src.data.sequences import read_fasta
+from src.eval.classification import (
     binary_classification_metrics,
     safe_auprc,
     safe_auroc,
 )
-from src.models.estimators.xgboost import fit_xgb_classifier  # noqa: E402
-from src.participation import (  # noqa: E402
+from src.models.estimators.xgboost import fit_xgb_classifier
+from src.participation import (
     DEFAULT_PRING_CACHE,
     FORMAL_FEATURE_KINDS,
     METHODS,
@@ -41,7 +36,7 @@ from src.participation import (  # noqa: E402
     full_graph_participation_labels,
     load_pring_human_split,
 )
-from src.participation.importance import (  # noqa: E402
+from src.participation.importance import (
     build_importance_rows,
     extract_xgb_importance,
     write_feature_importance,

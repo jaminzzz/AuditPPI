@@ -18,14 +18,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
-_ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".project-root").exists())
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-from src.participation import (  # noqa: E402
+from src.participation import (
     DEFAULT_PRING_CACHE,
     FEATURE_KINDS,
     FORMAL_FEATURE_KINDS,
