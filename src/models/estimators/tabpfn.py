@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import sys
-
 import numpy as np
 
 from conf.model import DEFAULT_SEED
 from conf.paths import TABPFN_SRC
+from src.runtime import ensure_on_sys_path
 
 
 def fit_tabpfn(
@@ -23,8 +22,8 @@ def fit_tabpfn(
     try:
         from tabpfn import TabPFNClassifier
     except (ImportError, ModuleNotFoundError):
-        if TABPFN_SRC.exists() and str(TABPFN_SRC) not in sys.path:
-            sys.path.insert(0, str(TABPFN_SRC))
+        # Fall back to the vendored TabPFN source tree when the package is absent.
+        ensure_on_sys_path(TABPFN_SRC)
         from tabpfn import TabPFNClassifier
 
     inference_config = (

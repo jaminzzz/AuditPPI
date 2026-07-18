@@ -48,10 +48,11 @@ AuditPPI/
 │   ├── participation/     Protein participation labels, predictors, and protocols.
 │   ├── interpretability/  SAE/model attribution, retrieval, and feature explanations.
 │   ├── models/            Reusable architectures + external estimator integrations.
-│   ├── runtime/           Device selection and executable runtime setup.
-│   ├── experiments/       Uniform result envelope + run provenance capture.
+│   ├── runtime/           Device selection, seeding, and vendored-import setup.
+│   ├── experiments/       Result envelope, experiment registry, run provenance.
 │   └── ppi_fingerprint/   PPI fingerprint features, protocol config, and orchestration.
 ├── scripts/               Pipeline, grouped by audit stage (see below).
+│   └── run_experiments.py Matrix runner over src/experiments/registry.py.
 ├── tests/                 CPU unit tests for data, features, models, and analyses.
 └── manuscripts/figures/   Final figures (SVG/PDF/PNG) written by scripts/figures/.
 ```
@@ -63,8 +64,11 @@ absolute paths** in `scripts/` or `src/`. To relocate the project or repoint a
 data source, edit `conf/paths.py` or the entries under `external/` — nothing else.
 
 After a one-time `pip install -e . --no-deps`, `conf` and `src` are importable
-from any directory, so scripts carry no `sys.path` bootstrap and work regardless
-of which `scripts/<group>/` subfolder they live in.
+from any directory, so project-owned modules need no `sys.path` bootstrap and
+work regardless of which `scripts/<group>/` subfolder they live in. The only
+remaining path surgery is `src.runtime.ensure_on_sys_path`, used solely to
+import *vendored upstream* trees under `external/` / `baselines/` (InterPLM,
+PPLM, MINT, optional TabPFN source fallback) that are deliberately not packaged.
 
 Main downstream models live under `src/models/`: project-owned PyTorch modules
 are in `architectures/`, while third-party `fit/predict` integrations are in
@@ -162,53 +166,135 @@ TabPFN retrieval-attention audit, negative-sampling & localization confound anal
 **`audit_residue/`** (Layer 3) — interface SAE enrichment (with surface-matched control)
 and contact-pair compatibility on PDB_PPI structures.
 
-**`figures/`** — regenerate all manuscript figures into `manuscripts/figures/`.
+**`smoke/`** — CPU plumbing check for the experiment matrix / runner / envelope
+(`scripts/smoke/smoke_runner.py`).
 
-**`smoke/`** — fast end-to-end sanity checks (no GPU).
+**`run_experiments.py`** — the matrix runner. Declares every audit cell in
+`src/experiments/registry.py`, probes readiness from declared inputs, runs
+ready cells, and records a provenance sidecar + `results/runs.jsonl` history
+line for each invocation. Result payloads themselves stay frozen manuscript
+numbers, wrapped in a common envelope via `src.experiments.results.dump_experiment`.
 
 ---
 
 ## Quick start / reproduction
 
 ```bash
-# 0. use the conda env that owns the dependencies (see pyproject.toml)
+# 0. use the conda env that owns the dependencies
 PY=/data/wmzhu/anaconda3/envs/E1/bin/python
 
 # 1. one-time: install the project as an editable package so `conf` and `src`
 #    import from anywhere (deps stay owned by the conda env, hence --no-deps).
 $PY -m pip install -e . --no-deps
 
-# 2. sanity check: participation-oracle math + real RF2-PPI load (no GPU)
-$PY scripts/smoke/smoke_eval.py
+# 2. plumbing smoke: registry coherence + runner dry-run + envelope (no GPU)
+$PY scripts/smoke/smoke_runner.py
 
-# 3. reproduce a baseline (pooled SAE fingerprint + classifier)
-$PY scripts/baseline/run_ppi_fingerprint_baseline.py --help
+# 3. inspect / dry-run the experiment matrix (readiness-probed, no execution)
+$PY scripts/run_experiments.py --all --dry-run
+$PY scripts/run_experiments.py --layer pair --dry-run
 
-# 4. regenerate the main figures from cached source data
-$PY scripts/figures/plot_audit_figures.py
+# 4. re-run one cell, a whole layer, or the auto matrix
+$PY scripts/run_experiments.py --experiment pair.c3_endpoint_additive_mlp.sae_max
+$PY scripts/run_experiments.py --layer protein --skip-existing
+$PY scripts/run_experiments.py --all --skip-existing
+
+# 5. expensive GPU cache builders are auto=False; run them explicitly if needed
+$PY scripts/run_experiments.py --experiment prep.seq_cache.c3
 ```
 
 After `pip install -e .`, `conf` and `src` resolve from any working directory —
-no `PYTHONPATH=.` and no per-script `sys.path` bootstrap. `conf.paths.ROOT`
+no `PYTHONPATH=.` and no per-script project bootstrap. `conf.paths.ROOT`
 still anchors on the `.project-root` marker, so relocating the project needs no
 code change (just re-run the editable install).
 
-### Figure ↔ source-data map
-
-All figure scripts import the layered `RESULTS_*` roots (source data) and
-`FIGURES` (output) from `conf/paths.py`:
-
-| Figure | Script | Reads from |
-|--------|--------|-----------|
-| `figure1_auditppi_concept`, `figure2_auditppi_results` | `plot_audit_figures.py` | `results/audit_{protein,pair,residue}/` + `results/misc/` |
-| `human_sae_degree_pca` | `plot_human_sae_degree_pca.py` | `results/audit_protein/pring_participation` |
-| `human_sae_feature_distribution` | `plot_human_sae_feature_distribution.py` | `results/audit_protein/pring_participation` + feature table |
-| `human_sae_hub_category_association` | `plot_human_sae_hub_category_association.py` | `results/audit_protein/pring_participation` + feature table |
-| `supplementary_s1/s2/s3` | `plot_supplementary_audit_figures.py` | `results/audit_residue/` + `data/sae/supplementary_inputs` |
-| `supplementary_s5_external_baseline_comparison` | `plot_supplementary_baseline_comparison.py` | `results/misc/ppi_fingerprint` + `supplementary_inputs` |
-| `tabpfn_case_4365_retrieval` | `plot_tabpfn_case_4365.py` | `results/audit_pair/tabpfn/tabpfn_retrieval_explanations` |
+Every audit result JSON is written as a common spine around the script's own
+payload (`schema_version`, `task`, `dataset`, `features`, `split`, `model`,
+`seed`, optional headline `metrics`/`hyperparameters`, and the original dict
+under `payload`). Run provenance (git rev, env, input fingerprints) lives next
+to the product as a `.prov.json` sidecar and in `results/runs.jsonl` — never
+inside the payload.
 
 ---
 
 ## Provenance
 Large shared data lakes remain in place and are reached via `external/` symlinks; project-exclusive data was moved in.
+
+
+# E1 environment
+
+AuditPPI uses one Python environment for all project-owned workflows:
+
+```bash
+PY=/data/wmzhu/anaconda3/envs/E1/bin/python
+```
+
+This includes:
+
+- ESM-C layers 60/80 with dense and SAE pooling;
+- ESM-2 final-layer features with InterPLM SAE;
+- DeepNano, FlashPPI, PPLM, and MINT feature wrappers;
+- XGBoost, TabPFN, EBM, MLP, and other downstream models;
+- participation, pair, residue, interpretability, and figure workflows;
+- HDF5 preparation scripts and the CPU test suite.
+
+## Project installation
+
+AuditPPI and the official TabPFN clone are installed in editable mode. Changes
+under `src/`, `conf/`, or `external/TabPFN/` take effect without reinstalling.
+
+```bash
+cd /data/wmzhu/PPI/AuditPPI
+
+$PY -m pip install -e . --no-deps
+$PY -m pip install -e external/TabPFN --no-deps
+```
+
+Re-run the corresponding editable install only after moving the repository or
+changing package metadata/build configuration.
+
+## Key versions
+
+| package | E1 version |
+|---|---:|
+| Python | 3.12.12 |
+| PyTorch | 2.7.0+cu126 |
+| Transformers | 4.57.6 |
+| NumPy | 2.4.2 |
+| pandas | 2.3.3 |
+| SciPy | 1.16.3 |
+| scikit-learn | 1.9.0 |
+| XGBoost | 3.2.0 |
+| TabPFN | 8.0.6 |
+| interpret | 0.7.8 |
+| LightGBM | 4.6.0 |
+| h5py | 3.16.0 |
+| hdf5plugin | 6.0.0 |
+| matplotlib | 3.10.9 |
+| pyarrow | 17.0.0 |
+| mdtraj | 1.11.1 |
+| pytest | 9.1.1 |
+
+TabPFN uses the official editable source under `external/TabPFN` and the model
+checkpoint already cached under `~/.cache/tabpfn/`.
+
+## ESM implementations
+```text
+ESM-C -> transformers.models.esmc + local ESM-C TopK SAE
+ESM-2 -> transformers.models.esm + local InterPLM ReLUSAE
+```
+
+The installed `esm==3.3.0` distribution is not used by these extractors. Do not
+install `fair-esm` into E1 because both distributions expose a top-level `esm`
+module. ESM-C and ESM-2 should be run as separate commands so their large model
+weights are not resident in memory simultaneously.
+
+ESM-C CPU extraction is supported through the PyTorch SDPA fallback. A
+single-protein layer-80 dense+SAE smoke used about 16.7 GiB peak RAM.
+
+## Upstream baseline requirements
+
+Do not install the complete historical requirement files from InterPLM,
+DeepNano, PPLM, or MINT into E1. They pin mutually incompatible old versions of
+Python, PyTorch, Transformers, or NumPy. AuditPPI's baseline wrappers import
+only the required local model implementations and have been validated in E1.

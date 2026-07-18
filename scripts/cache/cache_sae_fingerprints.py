@@ -24,7 +24,6 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -36,9 +35,10 @@ from conf.paths import (
     C3_TRAIN_CSV, C3_VAL_CSV, C3_TEST_CSV,
 )
 from conf.model import ESM2_LAYER, ESM2_DIM, ESM2_SAE_DIM, MAX_RESIDUES
+from src.runtime import ensure_on_sys_path
 
 # InterPLM package (interplm.sae.dictionary.ReLUSAE) lives under external/InterPLM.
-sys.path.insert(0, str(INTERPLM_ROOT))
+ensure_on_sys_path(INTERPLM_ROOT)
 
 CSV_SPLITS = {"train": C3_TRAIN_CSV, "val": C3_VAL_CSV, "test": C3_TEST_CSV}
 COL_A, COL_B = "query", "text"
@@ -92,7 +92,7 @@ def main() -> None:
     n = len(sequences)
     print(f"[data] unique sequences: {n} (limit={args.limit or 'none'})", flush=True)
 
-    # ---- load InterPLM ReLU-SAE (package on sys.path via INTERPLM_ROOT) -----
+    # ---- load InterPLM ReLU-SAE (vendored under external/InterPLM) ----------
     from interplm.sae.dictionary import ReLUSAE
 
     sae = ReLUSAE.from_pretrained(args.sae_path, device=dev)

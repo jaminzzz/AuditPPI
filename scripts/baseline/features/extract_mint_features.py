@@ -12,7 +12,6 @@ import argparse
 import json
 import os
 import subprocess
-import sys
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -24,6 +23,7 @@ from src.features.baseline_io import (
     save_baseline_pair_cache,
     truncate_pair_balanced,
 )
+from src.runtime import ensure_on_sys_path
 
 
 def pick_gpu() -> str:
@@ -66,8 +66,8 @@ def main() -> None:
         device_id = str(args.device_id) if args.device_id is not None else pick_gpu()
         os.environ["CUDA_VISIBLE_DEVICES"] = device_id
         print(f"[device] CUDA_VISIBLE_DEVICES={device_id}", flush=True)
-    if str(args.mint_root) not in sys.path:
-        sys.path.insert(0, str(args.mint_root))
+    # MINT is a vendored upstream tree under baselines/, not an installed package.
+    ensure_on_sys_path(args.mint_root)
 
     import torch
     from mint.data import Alphabet

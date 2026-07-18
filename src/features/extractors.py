@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 import time
 from pathlib import Path
 from typing import Any, Sequence
 
 from conf.model import ESMC_LAYERS, MAX_RESIDUES
+from src.runtime import ensure_on_sys_path
 
 import torch
 
@@ -258,8 +258,8 @@ def extract_esm2_features(
 ) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
     from transformers import AutoTokenizer, EsmModel
 
-    if str(interplm_root) not in sys.path:
-        sys.path.insert(0, str(interplm_root))
+    # InterPLM is a vendored upstream tree, not an installed package.
+    ensure_on_sys_path(interplm_root)
     from interplm.sae.dictionary import ReLUSAE
 
     model_dtype = _torch_dtype(dtype)

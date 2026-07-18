@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import inspect
-import sys
 
 import numpy as np
 
 from conf.paths import TABPFN_SRC
+from src.runtime import ensure_on_sys_path
 
 MODEL_KINDS = ("xgboost", "tabpfn", "random_forest", "ridge")
 
@@ -70,8 +70,8 @@ def fit_tabpfn_regressor(
     try:
         from tabpfn import TabPFNRegressor
     except (ImportError, ModuleNotFoundError):
-        if TABPFN_SRC.exists() and str(TABPFN_SRC) not in sys.path:
-            sys.path.insert(0, str(TABPFN_SRC))
+        # Fall back to the vendored TabPFN source tree when the package is absent.
+        ensure_on_sys_path(TABPFN_SRC)
         from tabpfn import TabPFNRegressor
 
     kwargs = {

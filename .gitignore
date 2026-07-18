@@ -43,6 +43,3 @@ htmlcov/
 
 # --- Matplotlib scratch dir some scripts set ---
 /tmp/matplotlib-auditppi/
-
-# Local conda environment notes (not version-controlled)
-environment/
