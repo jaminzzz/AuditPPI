@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from conf.paths import AUDIT
+from conf.paths import RESULTS_RESIDUE
 
 THREE2ONE = {
     "ALA": "A",
@@ -85,7 +85,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--side-masks", type=Path, required=True)
     p.add_argument("--unique-chains", type=Path, required=True)
-    p.add_argument("--out-dir", type=Path, default=AUDIT / "interface_grounding" / "pdb_ppi_pos_surface")
+    p.add_argument("--out-dir", type=Path, default=RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos_surface")
     p.add_argument("--rsasa-threshold", type=float, default=0.20)
     p.add_argument("--n-sphere-points", type=int, default=960)
     p.add_argument("--no-sanitize-pdb", action="store_true", help="load raw PDBs directly into MDTraj")

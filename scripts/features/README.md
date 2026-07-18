@@ -27,18 +27,18 @@ Binary features are defined only for the non-negative SAE representation.
 Run ESM-C in the `E1` environment:
 
 ```bash
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+/data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/features/extract_protein_features.py \
   --backbone esmc \
-  --input data/rapppid_c1/c1.train.csv \
-  --input data/rapppid_c1/c1.val.csv \
-  --input data/rapppid_c1/c1.test.csv \
-  --input data/rapppid_c2/c2.train.csv \
-  --input data/rapppid_c2/c2.val.csv \
-  --input data/rapppid_c2/c2.test.csv \
-  --input data/rapppid_c3/c3.train.csv \
-  --input data/rapppid_c3/c3.val.csv \
-  --input data/rapppid_c3/c3.test.csv \
+  --input data/raw/rapppid_c1/c1.train.csv \
+  --input data/raw/rapppid_c1/c1.val.csv \
+  --input data/raw/rapppid_c1/c1.test.csv \
+  --input data/raw/rapppid_c2/c2.train.csv \
+  --input data/raw/rapppid_c2/c2.val.csv \
+  --input data/raw/rapppid_c2/c2.test.csv \
+  --input data/raw/rapppid_c3/c3.train.csv \
+  --input data/raw/rapppid_c3/c3.val.csv \
+  --input data/raw/rapppid_c3/c3.test.csv \
   --sequence-cols query,text \
   --layers 60,80 \
   --output data/sae/seq_caches/rapppid_esmc_l60_l80_features.pt
@@ -47,12 +47,12 @@ PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
 Run ESM-2 + InterPLM SAE in the E1 environment:
 
 ```bash
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+/data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/features/extract_protein_features.py \
   --backbone esm2 \
-  --input data/rapppid_c3/c3.train.csv \
-  --input data/rapppid_c3/c3.val.csv \
-  --input data/rapppid_c3/c3.test.csv \
+  --input data/raw/rapppid_c3/c3.train.csv \
+  --input data/raw/rapppid_c3/c3.val.csv \
+  --input data/raw/rapppid_c3/c3.test.csv \
   --sequence-cols query,text \
   --output data/sae/seq_caches/rapppid_esm2_l33_features.pt
 ```
@@ -75,11 +75,11 @@ The primary order-invariant representation is `sym`:
   model averages the two predictions for each original pair.
 
 ```bash
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+/data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/features/build_pair_features.py \
   --cache data/sae/seq_caches/rapppid_esmc_l60_l80_features.pt \
   --feature esmc_l60_sae_max \
-  --pairs data/rapppid_c3/c3.train.csv \
+  --pairs data/raw/rapppid_c3/c3.train.csv \
   --mode sym \
   --output data/sae/reps/unified/c3_train_esmc_l60_sae_max_sym.pt
 ```

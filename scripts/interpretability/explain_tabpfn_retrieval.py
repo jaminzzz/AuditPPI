@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 
 from conf.paths import (
+    PAIR_CACHES_BINARY,
     RAPPPID_C3_DIR,
-    SAE_REPS_BINARY,
     TABPFN_RANKING,
     TABPFN_RETRIEVAL,
 )
@@ -40,7 +40,7 @@ from src.interpretability.tabpfn_retrieval import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--embedding-dir", type=Path, default=SAE_REPS_BINARY)
+    parser.add_argument("--embedding-dir", type=Path, default=PAIR_CACHES_BINARY)
     parser.add_argument("--ranking-csv", type=Path, default=TABPFN_RANKING)
     parser.add_argument("--out-dir", type=Path, default=TABPFN_RETRIEVAL)
     parser.add_argument("--c3-dir", type=Path, default=RAPPPID_C3_DIR)

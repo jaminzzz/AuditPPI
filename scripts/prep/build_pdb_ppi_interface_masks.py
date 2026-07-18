@@ -29,12 +29,12 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial import cKDTree
 
-from conf.paths import PPI_DATA, AUDIT
+from conf.paths import PPI_DATA, RESULTS_RESIDUE
 
 csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
 
 DEFAULT_DATA_ROOT = PPI_DATA
-DEFAULT_OUT_DIR = AUDIT / "interface_grounding" / "pdb_ppi_pos"
+DEFAULT_OUT_DIR = RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos"
 
 THREE2ONE = {
     "ALA": "A",

@@ -21,9 +21,9 @@ from conf.paths import (
     BENCHMARK_TSV as RF2PPI_TSV,
     BERNETT_DIR,
     BERNETT_SPLIT_CSVS,
-    C3_H5,
     CROSS_SPECIES_DIR,
     PRING_ROOT,
+    RAPPPID_H5,
     RF2PPI_FASTA,
 )
 from src.data.sequences import read_fasta
@@ -119,7 +119,7 @@ def load_rf2ppi(
 def load_clevel(
     level: str = "c3",
     split: str = "test",
-    h5_path: Path = C3_H5,
+    h5_path: Path = RAPPPID_H5,
     attach_seqs: bool = True,
 ) -> Benchmark:
     """Load one RAPPPID C1/C2/C3 split from the compressed HDF5 store."""
@@ -153,7 +153,7 @@ def load_clevel(
 
 def load_c3(
     split: str = "test",
-    h5_path: Path = C3_H5,
+    h5_path: Path = RAPPPID_H5,
     attach_seqs: bool = True,
 ) -> Benchmark:
     """Backward-compatible convenience wrapper for RAPPPID C3."""

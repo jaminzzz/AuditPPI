@@ -3,7 +3,7 @@
 
 Run in the E1 conda env because it needs the local Biohub transformers fork:
 
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python scripts/cache/cache_pring_human_esmc_sae.py
+  /data/wmzhu/anaconda3/envs/E1/bin/python scripts/cache/cache_pring_human_esmc_sae.py
 
 Output format matches the ppi_fingerprint pooled cache:
   - seq2idx
@@ -29,13 +29,13 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-from conf.paths import ESMC_MODEL, ESMC_SAE, PRING_ROOT, AUDIT, ROSETTA_SEQ_CACHE
+from conf.paths import ESMC_MODEL, ESMC_SAE, PRING_ROOT, PRING_HUMAN_SAE_CACHE, ROSETTA_SEQ_CACHE
 from src.data.sequences import read_fasta
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
 FASTA = PRING_ROOT / "human" / "human_simple.fasta"
-OUT = AUDIT / "pring_participation" / "pring_human_esmc_sae_cache.pt"
+OUT = PRING_HUMAN_SAE_CACHE
 RF2PPI_CACHE = ROSETTA_SEQ_CACHE
 LAYER = 60
 MAX_RESIDUES = 1022

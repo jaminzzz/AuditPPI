@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import fisher_exact
 
-from conf.paths import AUDIT
+from conf.paths import RESULTS_RESIDUE
 from src.data.sae_cache import SaeCacheReader
 
 
@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--side-masks", type=Path, required=True)
     p.add_argument("--sae-cache-dir", type=Path, required=True)
-    p.add_argument("--out-dir", type=Path, default=AUDIT / "interface_grounding" / "pdb_ppi_pos_sae")
+    p.add_argument("--out-dir", type=Path, default=RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos_sae")
     p.add_argument("--positive-column", default="interface_indices")
     p.add_argument(
         "--control-column",

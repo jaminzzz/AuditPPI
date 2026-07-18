@@ -8,7 +8,7 @@ to cached features by *exact sequence* (truncated to --max-residues) only.
 
 Run in the unified E1 conda environment:
 
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+  /data/wmzhu/anaconda3/envs/E1/bin/python \
       scripts/cache/cache_pic_human_esmc_sae.py --prefill-only
 
 Output format matches the ppi_fingerprint pooled cache:
@@ -32,20 +32,21 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 from conf.paths import (
-    ESMC_MODEL, ESMC_SAE, PIC_DATA, AUDIT,
+    ESMC_MODEL, ESMC_SAE, PIC_DATA,
     ROSETTA_SEQ_CACHE, CROSS_SPECIES_SEQ_CACHE, BERNETT_SEQ_CACHE,
+    PIC_HUMAN_SAE_CACHE, PRING_HUMAN_SAE_CACHE,
 )
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
-OUT = AUDIT / "pic_essentiality" / "pic_human_esmc_sae_cache.pt"
+OUT = PIC_HUMAN_SAE_CACHE
 
 # Existing pooled caches to prefill from, all ESMC-6B / layer60 / k64 / dict16384.
 SEED_CACHES = (
     ROSETTA_SEQ_CACHE,
     CROSS_SPECIES_SEQ_CACHE,
     BERNETT_SEQ_CACHE,
-    AUDIT / "pring_participation" / "pring_human_esmc_sae_cache.pt",
+    PRING_HUMAN_SAE_CACHE,
 )
 
 LAYER = 60

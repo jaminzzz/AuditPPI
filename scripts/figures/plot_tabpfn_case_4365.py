@@ -10,9 +10,9 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from conf.paths import TABPFN_RETRIEVAL as RETRIEVAL_DIR, AUDIT
+from conf.paths import TABPFN_RETRIEVAL as RETRIEVAL_DIR, RESULTS_MISC
 
-OUT = AUDIT / "ppi_fingerprint" / "tabpfn_case_4365_retrieval.svg"
+OUT = RESULTS_MISC / "ppi_fingerprint" / "tabpfn_case_4365_retrieval.svg"
 
 
 NAME = {

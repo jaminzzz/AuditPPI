@@ -9,7 +9,7 @@ zero-shot test sets have ESM-C/SAE features.
 
 Run in the E1 conda env (needs the local Biohub transformers fork):
 
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+  /data/wmzhu/anaconda3/envs/E1/bin/python \
     scripts/cache/cache_pring_species_esmc_sae.py --species yeast
 
 Output format matches the ppi_fingerprint pooled cache:
@@ -20,7 +20,7 @@ Output format matches the ppi_fingerprint pooled cache:
 plus PRING-specific: protein_ids, uniprotid2idx, unprotid2idx (typo alias).
 
 Reads ``{species}/{species}_simple.fasta`` from PRING_ROOT and writes
-``pring_{species}_esmc_sae_cache.pt`` under AUDIT/pring_participation/ (the path
+``pring_{species}_esmc_sae_cache.pt`` under PROTEIN_SAE_CACHES (the path
 ``src.participation.species_cache_path`` expects). Prefills from existing
 pooled caches (RF2PPI + the human PRING cache) by UniProt id or exact sequence
 to skip GPU work for any shared proteins.
@@ -38,12 +38,15 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-from conf.paths import ESMC_MODEL, ESMC_SAE, PRING_ROOT, AUDIT, ROSETTA_SEQ_CACHE
+from conf.paths import (
+    ESMC_MODEL, ESMC_SAE, PRING_ROOT, PROTEIN_SAE_CACHES,
+    PRING_HUMAN_SAE_CACHE, ROSETTA_SEQ_CACHE,
+)
 from src.data.sequences import read_fasta
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
-OUT_ROOT = AUDIT / "pring_participation"
+OUT_ROOT = PROTEIN_SAE_CACHES
 LAYER = 60
 MAX_RESIDUES = 1022
 

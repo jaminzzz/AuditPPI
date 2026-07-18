@@ -16,7 +16,7 @@ Run with the E1 conda env (uses the InterPLM package under external/). The
 ESM-2-650M weights are loaded from HuggingFace by name, so they must be cached
 locally when HF_HUB_OFFLINE=1.
 
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+  /data/wmzhu/anaconda3/envs/E1/bin/python \
       scripts/cache/cache_sae_fingerprints.py
 """
 from __future__ import annotations

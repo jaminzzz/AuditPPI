@@ -6,7 +6,7 @@ Each point is one PRING Human protein. Coordinates are computed from the
 after matching proteins to the PRING full-graph degree table.
 
 Run:
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_human_sae_degree_pca.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/figures/plot_human_sae_degree_pca.py
 """
 
 from __future__ import annotations
@@ -28,17 +28,17 @@ import pandas as pd
 import torch
 from sklearn.decomposition import PCA
 
-from conf.paths import AUDIT, FIGURES
+from conf.paths import RESULTS_PROTEIN, FIGURES, PRING_HUMAN_SAE_CACHE
 
-HUMAN_CACHE = AUDIT / "pring_participation" / "pring_human_esmc_sae_cache.pt"
+HUMAN_CACHE = PRING_HUMAN_SAE_CACHE
 DEGREE_TABLE = (
-    AUDIT
+    RESULTS_PROTEIN
     / "pring_participation"
     / "high_p90_xgboost"
     / "pring_human_bfs_binary_high_q90_xgboost_protein_predictions.tsv"
 )
 OUT_FIG = FIGURES
-OUT_DATA = AUDIT / "sae_degree_pca"
+OUT_DIR = RESULTS_PROTEIN / "sae_degree_pca"
 
 DIM = 16384
 RANDOM_STATE = 7
@@ -183,7 +183,7 @@ def plot(coords: np.ndarray, var: np.ndarray, degree_df: pd.DataFrame) -> None:
 
 def main() -> None:
     setup_style()
-    OUT_DATA.mkdir(parents=True, exist_ok=True)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     print("[load]", HUMAN_CACHE, flush=True)
     print("[load]", DEGREE_TABLE, flush=True)
     mat, rows, degree_df = load_inputs()
@@ -195,7 +195,7 @@ def main() -> None:
     out["sae_pc1"] = coords[:, 0]
     out["sae_pc2"] = coords[:, 1]
     out["log10_degree_plus1"] = np.log10(out["degree_full"].to_numpy(dtype=float) + 1.0)
-    out.to_csv(OUT_DATA / "human_sae_degree_pca_coordinates.tsv", sep="\t", index=False)
+    out.to_csv(OUT_DIR / "human_sae_degree_pca_coordinates.tsv", sep="\t", index=False)
 
     meta = {
         "human_cache": str(HUMAN_CACHE),
@@ -211,12 +211,12 @@ def main() -> None:
         "degree_median": float(out["degree_full"].median()),
         "degree_max": int(out["degree_full"].max()),
     }
-    with (OUT_DATA / "human_sae_degree_pca_meta.json").open("w") as f:
+    with (OUT_DIR / "human_sae_degree_pca_meta.json").open("w") as f:
         json.dump(meta, f, indent=2)
 
     plot(coords, var, degree_df)
     print("[done] wrote", OUT_FIG / "human_sae_degree_pca.png", flush=True)
-    print("[done] wrote", OUT_DATA / "human_sae_degree_pca_coordinates.tsv", flush=True)
+    print("[done] wrote", OUT_DIR / "human_sae_degree_pca_coordinates.tsv", flush=True)
 
 
 if __name__ == "__main__":

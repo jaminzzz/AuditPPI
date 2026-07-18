@@ -1,11 +1,15 @@
 # === AuditPPI .gitignore ===
 # Track source, config, and scripts.
-# Do NOT track large data lakes, vendored upstream repos, model weights, tests, or manuscripts.
+# Do NOT track large data lakes, audit products, vendored upstream repos,
+# model weights, tests, or manuscripts.
 
 # --- Large data / vendored upstream (tens of GB; reached via conf/paths.py) ---
 /data/
 /external/
 /baselines/
+
+# --- Audit products (regenerable; layered under results/{audit_*,analysis,misc}/) ---
+/results/
 
 # --- Python bytecode / caches ---
 __pycache__/

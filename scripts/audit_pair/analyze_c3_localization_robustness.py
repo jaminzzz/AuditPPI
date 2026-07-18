@@ -27,7 +27,7 @@ the baseline "shares>=1" was diluting the control with generic-collision pairs.
 Read-only w.r.t. the baseline audit outputs; writes its own JSON.
 
 Run:
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/analyze_c3_localization_robustness.py --split test
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/audit_pair/analyze_c3_localization_robustness.py --split test
 """
 from __future__ import annotations
 

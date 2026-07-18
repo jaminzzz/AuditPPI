@@ -5,13 +5,12 @@ This standalone figure compares the ESM-C SAE fingerprint with previously run
 DeepNano, MINT, PPLM, FlashPPI, and the earlier ESM-2/InterPLM-SAE phase.
 
 The InterPLM-SAE row is loaded from
-``data/ppi_fingerprint/interplm_sae_c3_result.json`` if present. Otherwise, the
-script uses the verified ESM-2 phase value recorded in
-``SAE_PPI/ppi_fingerprint/make_report_figures.py`` and marks AUPRC/val metrics
-as unavailable.
+``results/misc/ppi_fingerprint/interplm_sae_c3_result.json`` if present.
+Otherwise the script uses the verified ESM-2 phase value and marks AUPRC/val
+metrics as unavailable.
 
 Run:
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_supplementary_baseline_comparison.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/figures/plot_supplementary_baseline_comparison.py
 """
 
 from __future__ import annotations
@@ -34,14 +33,14 @@ from matplotlib import gridspec
 from matplotlib.colors import LinearSegmentedColormap
 
 from conf.paths import ROOT
-from conf.paths import AUDIT, FIGURES, SAE_SUPP_INPUTS, C3_TEST_CSV
+from conf.paths import RESULTS_MISC, FIGURES, SAE_SUPP_INPUTS, C3_TEST_CSV
 
 # precomputed results JSONs + tabm ckpts (was SAE_PPI/ppi_fingerprint/outputs/)
 SAE_OUT = SAE_SUPP_INPUTS
 OUT_FIG = FIGURES
-OUT_DATA = AUDIT / "supplementary_audit_figures"
+OUT_DIR = RESULTS_MISC / "supplementary_audit_figures"
 OUT_FIG.mkdir(parents=True, exist_ok=True)
-OUT_DATA.mkdir(parents=True, exist_ok=True)
+OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 P = {
     "ink": "#2B2B2B",
@@ -279,7 +278,7 @@ def load_baseline_table() -> tuple[pd.DataFrame, pd.DataFrame]:
         "fully interpretable 0/1 fingerprint",
     )
 
-    inter_path = AUDIT / "ppi_fingerprint" / "interplm_sae_c3_result.json"
+    inter_path = RESULTS_MISC / "ppi_fingerprint" / "interplm_sae_c3_result.json"
     if inter_path.exists():
         inter = read_json(inter_path)
         add_row(
@@ -315,7 +314,7 @@ def load_baseline_table() -> tuple[pd.DataFrame, pd.DataFrame]:
             0.9339,
             float("nan"),
             float("nan"),
-            "AUPRC/val metrics not available in on-disk JSON; replace with data/ppi_fingerprint/interplm_sae_c3_result.json when available",
+            "AUPRC/val metrics not available in on-disk JSON; replace with results/misc/ppi_fingerprint/interplm_sae_c3_result.json when available",
         )
 
     add_row(
@@ -428,8 +427,8 @@ def load_baseline_table() -> tuple[pd.DataFrame, pd.DataFrame]:
                 )
     grid = pd.DataFrame(grid_rows)
 
-    df.to_csv(OUT_DATA / "s5_external_baseline_summary.tsv", sep="\t", index=False)
-    grid.to_csv(OUT_DATA / "s5_mint_pplm_probe_grid.tsv", sep="\t", index=False)
+    df.to_csv(OUT_DIR / "s5_external_baseline_summary.tsv", sep="\t", index=False)
+    grid.to_csv(OUT_DIR / "s5_mint_pplm_probe_grid.tsv", sep="\t", index=False)
     return df, grid
 
 
@@ -645,12 +644,12 @@ def make_prediction_cache() -> pd.DataFrame:
                 }
             )
     pred = pd.DataFrame(rows)
-    pred.to_csv(OUT_DATA / "s5_c3_test_predictions.tsv", sep="\t", index=False)
+    pred.to_csv(OUT_DIR / "s5_c3_test_predictions.tsv", sep="\t", index=False)
     return pred
 
 
 def load_curve_predictions() -> pd.DataFrame:
-    path = OUT_DATA / "s5_c3_test_predictions.tsv"
+    path = OUT_DIR / "s5_c3_test_predictions.tsv"
     required = {s["name"] for s in CURVE_SPECS}
     refresh = os.environ.get("S5_REFRESH_PREDICTIONS", "0") == "1"
     if path.exists() and not refresh:
@@ -678,7 +677,7 @@ def curve_metric_table(pred: pd.DataFrame) -> pd.DataFrame:
             }
         )
     out = pd.DataFrame(rows)
-    out.to_csv(OUT_DATA / "s5_curve_score_summary.tsv", sep="\t", index=False)
+    out.to_csv(OUT_DIR / "s5_curve_score_summary.tsv", sep="\t", index=False)
     return out
 
 

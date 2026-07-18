@@ -8,7 +8,7 @@ Design follows plot_prank_figures.py: 7.2" wide, 6-7pt Arial, soft palette,
 rounded panel labels, mixed chart types, exports svg/pdf/png.
 
 Run:
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_audit_figures.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/figures/plot_audit_figures.py
 """
 
 from __future__ import annotations
@@ -27,7 +27,13 @@ from matplotlib import patches
 from matplotlib.lines import Line2D
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 
-from conf.paths import AUDIT as DATA, FIGURES as OUT
+from conf.paths import (
+    RESULTS_PROTEIN,
+    RESULTS_PAIR,
+    RESULTS_RESIDUE,
+    RESULTS_MISC,
+    FIGURES as OUT,
+)
 
 OUT.mkdir(parents=True, exist_ok=True)
 
@@ -120,7 +126,7 @@ def blank_header(ax, label, title):
 # Data loaders (all paths verified against the repo)
 # ============================================================
 def load_participation_node_preds():
-    f = (DATA / "pring_participation" / "high_p90_xgboost"
+    f = (RESULTS_PROTEIN / "pring_participation" / "high_p90_xgboost"
          / "pring_human_bfs_binary_high_q90_xgboost_protein_predictions.tsv")
     df = pd.read_csv(f, sep="\t")
     return df[df["split"] == "test"].copy()
@@ -133,7 +139,7 @@ def load_participation_matrix():
     reps = ["binary", "sae_max", "esmc_mean"]
     auroc = np.zeros((len(reps), len(splits)))
     auprc = np.zeros((len(reps), len(splits)))
-    base = DATA / "pring_participation" / "high_p90_xgboost"
+    base = RESULTS_PROTEIN / "pring_participation" / "high_p90_xgboost"
     for j, sp in enumerate(splits):
         for i, rp in enumerate(reps):
             fp = base / f"pring_human_{sp}_{rp}_high_q90_xgboost.json"
@@ -145,23 +151,23 @@ def load_participation_matrix():
 
 def load_baseline_summary():
     import json
-    return json.load(open(DATA / "ppi_fingerprint" / "baseline_summary.json"))
+    return json.load(open(RESULTS_MISC / "ppi_fingerprint" / "baseline_summary.json"))
 
 
 def load_query_audit():
-    f = DATA / "leakage_audit" / "tabpfn_c3_attention_feature_label" / "query_audit.tsv"
+    f = RESULTS_PAIR / "leakage_audit" / "tabpfn_c3_attention_feature_label" / "query_audit.tsv"
     return pd.read_csv(f, sep="\t")
 
 
 def load_case4365():
-    f = DATA / "structure_comparison" / "tabpfn_case_4365" / "structure_similarity_to_query.tsv"
+    f = RESULTS_PAIR / "structure_comparison" / "tabpfn_case_4365" / "structure_similarity_to_query.tsv"
     return pd.read_csv(f, sep="\t")
 
 
 def load_ranking_enrichment():
-    fa = (DATA / "interface_grounding" / "pdb_ppi_pos_sae_enrichment_all_noninterface"
+    fa = (RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos_sae_enrichment_all_noninterface"
           / "ranking_interface_enrichment.tsv")
-    fs = (DATA / "interface_grounding" / "pdb_ppi_pos_sae_enrichment_surface_noninterface"
+    fs = (RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos_sae_enrichment_surface_noninterface"
           / "ranking_interface_enrichment.tsv")
     da = pd.read_csv(fa, sep="\t")
     ds = pd.read_csv(fs, sep="\t")
@@ -171,13 +177,13 @@ def load_ranking_enrichment():
 
 
 def load_interface_volcano():
-    f = (DATA / "interface_grounding" / "pdb_ppi_pos_sae_enrichment_all_noninterface"
+    f = (RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos_sae_enrichment_all_noninterface"
          / "interface_sae_feature_enrichment.tsv")
     return pd.read_csv(f, sep="\t")
 
 
 def load_contact_categories():
-    f = (DATA / "interface_grounding" / "pdb_ppi_pos_sae_contact_compat_top4"
+    f = (RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos_sae_contact_compat_top4"
          / "contact_compatible_category_pair_summary.tsv")
     return pd.read_csv(f, sep="\t")
 
@@ -205,7 +211,7 @@ def load_contact_feature_pairs():
     regime attached from the free-text summaries. A pair takes the named regime
     carried by either side (transmembrane / ribosomal / active-site take
     precedence over 'Other'). Only rows flagged is_contact_compatible are kept."""
-    f = (DATA / "interface_grounding" / "pdb_ppi_pos_sae_contact_compat_top4"
+    f = (RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos_sae_contact_compat_top4"
          / "top_contact_compatible_feature_pairs_annotated.tsv")
     df = pd.read_csv(f, sep="\t")
     df = df[df["is_contact_compatible"] == 1].copy()

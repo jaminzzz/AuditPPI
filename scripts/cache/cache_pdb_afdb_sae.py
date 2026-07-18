@@ -31,7 +31,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 from src.data.sae_cache import pack_sparse
-from conf.paths import ESMC_MODEL, ESMC_SAE, PPI_DATA, AUDIT
+from conf.paths import ESMC_MODEL, ESMC_SAE, PPI_DATA, RESULTS_MISC
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
@@ -59,7 +59,7 @@ def parse_args():
         default="posi,nega",
         help="comma list for PDB_PPI: posi,nega; use posi for interface-grounding positive chains",
     )
-    p.add_argument("--out-dir", type=Path, default=AUDIT / "sae_pdb_ddi_cache")
+    p.add_argument("--out-dir", type=Path, default=RESULTS_MISC / "sae_pdb_ddi_cache")
     p.add_argument(
         "--sequence-tsv",
         type=Path,

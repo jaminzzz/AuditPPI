@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run C3 sequence-predicted participation oracle with feature importance.
 
-This is the same diagnostic as ``scripts/run_participation_oracle.py`` for C3:
+This is the same diagnostic as ``scripts/audit_protein/run_participation_oracle.py`` for C3:
 
     1. compute train+val protein target t(p) = pos(p) / degree(p)
     2. fit an XGBoost regressor t_hat(p) = f(SAE(p))
@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-from conf.paths import AUDIT, FEATURE_TABLE
+from conf.paths import RESULTS_PROTEIN, FEATURE_TABLE
 from src.eval import evaluate_scorer
 from src.eval.metrics import participation_t
 from src.models.estimators.xgboost import fit_xgb_regressor
@@ -36,7 +36,7 @@ from src.participation.predictor import (
     train_target_t,
 )
 
-OUT_DIR = AUDIT / "c3_seq_participation_oracle"
+OUT_DIR = RESULTS_PROTEIN / "c3_seq_participation_oracle"
 
 
 def feature_names(rep: str, dim: int) -> list[str]:

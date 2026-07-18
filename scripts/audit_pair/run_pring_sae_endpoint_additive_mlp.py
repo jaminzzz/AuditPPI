@@ -24,13 +24,13 @@ import pandas as pd
 import torch
 from sklearn.metrics import roc_auc_score
 
-from conf.paths import AUDIT, PRING_ROOT
+from conf.paths import RESULTS_PAIR, PRING_ROOT, PRING_HUMAN_SAE_CACHE
 from src.eval.metrics import pair_score_metrics as metrics
 from src.runtime import seed_all
 from src.models.architectures.endpoint_mlp import EndpointMLP
 
-HUMAN_CACHE = AUDIT / "pring_participation" / "pring_human_esmc_sae_cache.pt"
-OUT_DIR = AUDIT / "pring_endpoint_additive_mlp_sae"
+HUMAN_CACHE = PRING_HUMAN_SAE_CACHE
+OUT_DIR = RESULTS_PAIR / "pring_endpoint_additive_mlp_sae"
 
 METHODS = ("BFS", "DFS", "RANDOM_WALK")
 REPS = ("sae_max", "binary")

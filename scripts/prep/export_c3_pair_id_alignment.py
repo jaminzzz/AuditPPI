@@ -16,7 +16,7 @@ so downstream audits can attach per-protein annotations (degree, localization)
 and slice the cached SAE fingerprints by the same row index.
 
 Run in E1 (includes hdf5plugin):
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/export_c3_pair_id_alignment.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/prep/export_c3_pair_id_alignment.py
 """
 from __future__ import annotations
 
@@ -24,9 +24,9 @@ import argparse
 import os
 from pathlib import Path
 
-from conf.paths import RAPPPID_C3_DIR as CSV_DIR, C3_H5, AUDIT
+from conf.paths import RAPPPID_C3_DIR as CSV_DIR, RAPPPID_H5, RESULTS_PAIR
 
-OUT_DIR = AUDIT / "negative_sampling_audit"
+OUT_DIR = RESULTS_PAIR / "negative_sampling_audit"
 
 
 def _load_seq2id(h5_path: Path) -> dict[str, str]:
@@ -56,7 +56,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv-dir", type=Path, default=CSV_DIR)
     ap.add_argument("--csv-pattern", default="c3.{split}.csv")
-    ap.add_argument("--h5", type=Path, default=C3_H5)
+    ap.add_argument("--h5", type=Path, default=RAPPPID_H5)
     ap.add_argument("--splits", nargs="+", default=["train", "val", "test"])
     ap.add_argument("--col-a", default="query")
     ap.add_argument("--col-b", default="text")

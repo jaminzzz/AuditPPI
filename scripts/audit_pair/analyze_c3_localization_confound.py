@@ -21,16 +21,16 @@ Compartments are coarse-grained from GO cellular-component (structured, GO-id be
 falls back to the free-text subcellular_cc only when go_cc is empty).
 
 Inputs:
-  data/negative_sampling_audit/c3_{split}_pair_ids.parquet        (export_c3_pair_id_alignment.py)
-  data/negative_sampling_audit/c3_uniprot_localization.parquet    (fetch_c3_uniprot_localization.py)
-  <reps>/sae_max/{split}_embeddings.pt
+  results/audit_pair/negative_sampling_audit/c3_{split}_pair_ids.parquet
+  results/audit_pair/negative_sampling_audit/c3_uniprot_localization.parquet
+  pair_caches/esmc/sae_max/{split}_embeddings.pt
 
 Outputs:
-  data/negative_sampling_audit/c3_{split}_localization_confound.json
-  data/negative_sampling_audit/c3_{split}_protein_compartments.parquet   (per-protein compartment sets)
+  results/audit_pair/negative_sampling_audit/c3_{split}_localization_confound.json
+  results/audit_pair/negative_sampling_audit/c3_{split}_protein_compartments.parquet
 
 Run:
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/analyze_c3_localization_confound.py --split test
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/audit_pair/analyze_c3_localization_confound.py --split test
 """
 from __future__ import annotations
 
@@ -45,9 +45,9 @@ import torch
 from scipy.stats import mannwhitneyu
 from sklearn.metrics import roc_auc_score
 
-from conf.paths import AUDIT, SAE_REPS as REP_ROOT
+from conf.paths import RESULTS_PAIR, PAIR_CACHES as REP_ROOT
 
-AUDIT_DIR = AUDIT / "negative_sampling_audit"
+AUDIT_DIR = RESULTS_PAIR / "negative_sampling_audit"
 SAE_MAX_DIR = REP_ROOT / "sae_max"
 LOC_PARQUET = AUDIT_DIR / "c3_uniprot_localization.parquet"
 

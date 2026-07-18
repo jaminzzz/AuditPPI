@@ -22,21 +22,21 @@ remains available as historical provenance for the earlier layer-60 ESM-C run.
 
 ```bash
 # ESM-C final layer; E1 environment
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+/data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/baseline/features/extract_deepnano_features.py \
   --backbone esmc \
-  --input data/rapppid_c3/c3.train.csv \
-  --input data/rapppid_c3/c3.val.csv \
-  --input data/rapppid_c3/c3.test.csv \
+  --input data/raw/rapppid_c3/c3.train.csv \
+  --input data/raw/rapppid_c3/c3.val.csv \
+  --input data/raw/rapppid_c3/c3.test.csv \
   --sequence-cols query,text
 
 # ESM-2 final layer; E1 environment
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+/data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/baseline/features/extract_deepnano_features.py \
   --backbone esm2 \
-  --input data/rapppid_c3/c3.train.csv \
-  --input data/rapppid_c3/c3.val.csv \
-  --input data/rapppid_c3/c3.test.csv \
+  --input data/raw/rapppid_c3/c3.train.csv \
+  --input data/raw/rapppid_c3/c3.val.csv \
+  --input data/raw/rapppid_c3/c3.test.csv \
   --sequence-cols query,text
 ```
 
@@ -58,9 +58,9 @@ contextual embedding B     1280
 ```
 
 ```bash
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+/data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/baseline/features/extract_pplm_features.py \
-  --pairs data/rapppid_c3/c3.test.csv \
+  --pairs data/raw/rapppid_c3/c3.test.csv \
   --output data/sae/baseline_features/pplm/c3_test.pt
 ```
 
@@ -79,11 +79,11 @@ For an undirected pair, average the two directional retrieval scores:
 ```
 
 ```bash
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+/data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/baseline/features/extract_flashppi_features.py \
-  --input data/rapppid_c3/c3.train.csv \
-  --input data/rapppid_c3/c3.val.csv \
-  --input data/rapppid_c3/c3.test.csv \
+  --input data/raw/rapppid_c3/c3.train.csv \
+  --input data/raw/rapppid_c3/c3.val.csv \
+  --input data/raw/rapppid_c3/c3.test.csv \
   --sequence-cols query,text \
   --output data/sae/baseline_features/flashppi/rapppid_proteins.pt
 ```
@@ -95,9 +95,9 @@ assigns chain IDs, runs the multimer model, and mean-pools the final layer over
 each chain separately. This matches the upstream GeneralPPI wrapper.
 
 ```bash
-PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+/data/wmzhu/anaconda3/envs/E1/bin/python \
   scripts/baseline/features/extract_mint_features.py \
-  --pairs data/rapppid_c3/c3.test.csv \
+  --pairs data/raw/rapppid_c3/c3.test.csv \
   --output data/sae/baseline_features/mint/c3_test.pt
 ```
 

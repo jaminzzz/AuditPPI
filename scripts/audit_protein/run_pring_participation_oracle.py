@@ -7,10 +7,10 @@ Definition:
   protein-disjoint Human BFS/DFS/RANDOM_WALK splits.
 
 Examples:
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python scripts/run_pring_participation_oracle.py \
-    --method BFS --feature-kind all --cache-path data/pring_participation/pring_human_esmc_sae_cache.pt
+  /data/wmzhu/anaconda3/envs/E1/bin/python scripts/audit_protein/run_pring_participation_oracle.py \
+    --method BFS --feature-kind all --cache-path data/sae/protein_caches/pring_human_esmc_sae_cache.pt
 
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python scripts/run_pring_participation_oracle.py \
+  /data/wmzhu/anaconda3/envs/E1/bin/python scripts/audit_protein/run_pring_participation_oracle.py \
     --method all --feature-kind sae_max --model-kind xgboost --pair-eval human_test
 """
 

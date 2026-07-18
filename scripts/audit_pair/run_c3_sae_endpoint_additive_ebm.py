@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from conf.paths import AUDIT, SAE_REPS as SAE_REP_ROOT
+from conf.paths import RESULTS_PAIR, PAIR_CACHES as SAE_REP_ROOT
 from src.eval.metrics import pair_score_metrics as metrics
 from src.runtime import seed_all
 from src.interpretability.annotations import add_sae_annotations
@@ -39,7 +39,7 @@ from src.models.estimators.ebm import (
     make_endpoint_ebm,
 )
 
-OUT_DIR = AUDIT / "c3_endpoint_additive_ebm_sae"
+OUT_DIR = RESULTS_PAIR / "c3_endpoint_additive_ebm_sae"
 
 REP_DIR = {
     "sae_max": SAE_REP_ROOT / "sae_max",

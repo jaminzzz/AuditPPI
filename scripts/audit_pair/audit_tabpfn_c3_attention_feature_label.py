@@ -26,9 +26,9 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 from conf.paths import (
-    AUDIT,
+    RESULTS_PAIR,
+    PAIR_CACHES_BINARY,
     RAPPPID_C3_DIR,
-    SAE_REPS_BINARY,
     TABPFN_RANKING,
 )
 from src.runtime import setup_device
@@ -50,10 +50,10 @@ from src.interpretability.tabpfn_retrieval import (
 from src.models.estimators.tabpfn import fit_tabpfn
 
 
-DEFAULT_EMBEDDING_DIR = SAE_REPS_BINARY
+DEFAULT_EMBEDDING_DIR = PAIR_CACHES_BINARY
 DEFAULT_RANKING = TABPFN_RANKING
 DEFAULT_C3_DIR = RAPPPID_C3_DIR
-DEFAULT_OUT = AUDIT / "leakage_audit/tabpfn_c3_attention_feature_label"
+DEFAULT_OUT = RESULTS_PAIR / "leakage_audit/tabpfn_c3_attention_feature_label"
 
 
 def parse_args() -> argparse.Namespace:

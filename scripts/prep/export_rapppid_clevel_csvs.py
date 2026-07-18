@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """Export RAPPPID C1/C2/C3 splits from the h5 store into (query,text,label) CSVs.
 
-The RAPPPID h5 (``C3_H5``) holds all three Park & Marcotte leakage levels under
+The RAPPPID h5 (``RAPPPID_H5``) holds all three Park & Marcotte leakage levels under
 ``interactions/{c1,c2,c3}/{level}_{split}`` as (protein_id1, protein_id2, label)
 rows, plus a shared ``sequences`` table (name=UniProt accession, sequence). The
 audit pipeline consumes flat ``(query,text,label)`` CSVs where query/text are the
-raw SEQUENCES (this is the schema of the existing ``data/rapppid_c3/c3.*.csv``).
+raw SEQUENCES (this is the schema of the existing ``data/raw/rapppid_c3/c3.*.csv``).
 
 This script reproduces that schema for any requested level, so C1/C2 become
 first-class benchmarks alongside the pre-existing C3 set. Output layout mirrors
 the C3 directory:
 
-    data/rapppid_c1/c1.{train,val,test}.csv
-    data/rapppid_c2/c2.{train,val,test}.csv
-    data/rapppid_c3/c3.{train,val,test}.csv   (regenerated only if --levels c3)
+    data/raw/rapppid_c1/c1.{train,val,test}.csv
+    data/raw/rapppid_c2/c2.{train,val,test}.csv
+    data/raw/rapppid_c3/c3.{train,val,test}.csv   (regenerated only if --levels c3)
 
 Each id is resolved to its sequence via the h5 ``sequences`` table. Sequences in
 the store are fixed-width ``S3000``; proteins longer than 3000 aa are truncated
 AT SOURCE (a pre-existing property inherited by the C3 CSVs, not introduced here).
 
 Run in E1 (includes h5py + hdf5plugin):
-    PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+    /data/wmzhu/anaconda3/envs/E1/bin/python \
         scripts/prep/export_rapppid_clevel_csvs.py --levels c1 c2
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ import argparse
 import os
 from pathlib import Path
 
-from conf.paths import C3_H5, RAPPPID_CLEVEL_CSVS
+from conf.paths import RAPPPID_H5, RAPPPID_CLEVEL_CSVS
 
 
 def _load_id2seq(h5_path: Path) -> dict[str, str]:
@@ -48,7 +48,7 @@ def _load_id2seq(h5_path: Path) -> dict[str, str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--h5", type=Path, default=C3_H5)
+    ap.add_argument("--h5", type=Path, default=RAPPPID_H5)
     ap.add_argument("--levels", nargs="+", default=["c1", "c2"],
                     choices=["c1", "c2", "c3"])
     ap.add_argument("--splits", nargs="+", default=["train", "val", "test"])

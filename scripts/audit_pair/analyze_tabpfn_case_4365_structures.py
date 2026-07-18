@@ -29,13 +29,13 @@ from pathlib import Path
 import numpy as np
 
 from conf.paths import (
-    AUDIT,
+    RESULTS_PAIR,
     TABPFN_RETRIEVAL,
     USALIGN,
 )
 
 RETRIEVAL_DIR = TABPFN_RETRIEVAL
-OUT_DIR = AUDIT / "structure_comparison/tabpfn_case_4365"
+OUT_DIR = RESULTS_PAIR / "structure_comparison/tabpfn_case_4365"
 STRUCT_DIR = OUT_DIR / "structures"
 MATRIX_DIR = OUT_DIR / "alignment_matrices"
 SVG_OUT = OUT_DIR / "tabpfn_case_4365_structure_similarity.svg"

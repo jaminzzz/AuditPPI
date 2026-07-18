@@ -13,7 +13,7 @@ No PLM parameters are trained here. RAPPPID CSVs are read-only. Outputs are
 written under DEEPNANO_DIR/deepnano_<backbone>/{seq_cache.pt,meta.json}. The
 products are not consumed by the audit yet; kept for reproducibility.
 
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+  /data/wmzhu/anaconda3/envs/E1/bin/python \
       scripts/cache/cache_deepnano_embeddings.py --backbone esmc_6b
 """
 from __future__ import annotations

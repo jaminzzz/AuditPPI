@@ -11,7 +11,7 @@ features by ``esmc_sae_max``. Category shares are computed within those top
 features, which avoids the pooled-max matrix's dense low-level activation tail.
 
 Run:
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_human_sae_hub_category_association.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/figures/plot_human_sae_hub_category_association.py
 """
 
 from __future__ import annotations
@@ -33,17 +33,17 @@ import pandas as pd
 import torch
 from scipy.stats import spearmanr
 
-from conf.paths import AUDIT, FEATURE_TABLE, FIGURES
+from conf.paths import RESULTS_PROTEIN, FEATURE_TABLE, FIGURES, PRING_HUMAN_SAE_CACHE
 
-HUMAN_CACHE = AUDIT / "pring_participation" / "pring_human_esmc_sae_cache.pt"
+HUMAN_CACHE = PRING_HUMAN_SAE_CACHE
 DEGREE_TABLE = (
-    AUDIT
+    RESULTS_PROTEIN
     / "pring_participation"
     / "high_p90_xgboost"
     / "pring_human_bfs_binary_high_q90_xgboost_protein_predictions.tsv"
 )
 OUT_FIG = FIGURES
-OUT_DATA = AUDIT / "sae_hub_category"
+OUT_DIR = RESULTS_PROTEIN / "sae_hub_category"
 
 DIM = 16384
 TOP_K = 256
@@ -445,13 +445,13 @@ def plot(data: dict) -> None:
 
 def main() -> None:
     setup_style()
-    OUT_DATA.mkdir(parents=True, exist_ok=True)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     print("[load]", FEATURE_TABLE, flush=True)
     print("[load]", HUMAN_CACHE, flush=True)
     print("[load]", DEGREE_TABLE, flush=True)
     data = prepare_data()
     stats = data["stats"]
-    stats.to_csv(OUT_DATA / "human_sae_hub_category_stats.tsv", sep="\t", index=False)
+    stats.to_csv(OUT_DIR / "human_sae_hub_category_stats.tsv", sep="\t", index=False)
     meta = {
         "feature_table": str(FEATURE_TABLE),
         "human_cache": str(HUMAN_CACHE),
@@ -461,11 +461,11 @@ def main() -> None:
         "hub_cutoff_degree": int(data["hub_cutoff"]),
         "group_counts": {g: int((data["groups"] == g).sum()) for g in data["group_order"]},
     }
-    with (OUT_DATA / "human_sae_hub_category_stats.json").open("w") as f:
+    with (OUT_DIR / "human_sae_hub_category_stats.json").open("w") as f:
         json.dump({"meta": meta, "categories": stats.to_dict(orient="records")}, f, indent=2)
     plot(data)
     print("[done] wrote", OUT_FIG / "human_sae_hub_category_association.png", flush=True)
-    print("[done] wrote", OUT_DATA / "human_sae_hub_category_stats.tsv", flush=True)
+    print("[done] wrote", OUT_DIR / "human_sae_hub_category_stats.tsv", flush=True)
 
 
 if __name__ == "__main__":

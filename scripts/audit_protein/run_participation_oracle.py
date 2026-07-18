@@ -6,7 +6,7 @@ predicts on the disjoint C3 test proteins, and scores pairs by min(t̂_A, t̂_B)
 only on train+val proteins and never sees test labels, so its pair-level AUROC is an honest measure of
 how far a label-free, sequence-only predictor can recover the participation structure.
 
-Run: PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python scripts/run_participation_oracle.py
+Run: /data/wmzhu/anaconda3/envs/E1/bin/python scripts/audit_protein/run_participation_oracle.py
      [--family c3|cross_species] [--rep sae_max|binary|esmc_mean] [--no-write]
 """
 import argparse

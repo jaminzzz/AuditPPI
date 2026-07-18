@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from conf.paths import (
-    AUDIT,
+    RESULTS_MISC,
     CROSS_SPECIES_SEQ_CACHE,
     ESMC_DEFAULT_SEQ_CACHE,
     ROSETTA_SEQ_CACHE,
@@ -24,7 +24,7 @@ NATIVE_TRAIN = {
     "rf2ppi": "c3:train",
 }
 
-OUT_DIR = AUDIT / "ppi_fingerprint"
+OUT_DIR = RESULTS_MISC / "ppi_fingerprint"
 
 __all__ = [
     "CACHE",

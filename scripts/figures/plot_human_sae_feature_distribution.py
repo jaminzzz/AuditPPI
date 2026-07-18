@@ -10,7 +10,7 @@ and summarizes both the SAE vocabulary composition and how often each category
 appears in human proteins.
 
 Run:
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_human_sae_feature_distribution.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/figures/plot_human_sae_feature_distribution.py
 """
 
 from __future__ import annotations
@@ -31,11 +31,11 @@ import numpy as np
 import pandas as pd
 import torch
 
-from conf.paths import AUDIT, FEATURE_TABLE, FIGURES
+from conf.paths import RESULTS_PROTEIN, FEATURE_TABLE, FIGURES, PRING_HUMAN_SAE_CACHE
 
-HUMAN_CACHE = AUDIT / "pring_participation" / "pring_human_esmc_sae_cache.pt"
+HUMAN_CACHE = PRING_HUMAN_SAE_CACHE
 OUT_FIG = FIGURES
-OUT_DATA = AUDIT / "sae_feature_distribution"
+OUT_DIR = RESULTS_PROTEIN / "sae_feature_distribution"
 
 DIM = 16384
 EPS = 1e-12
@@ -477,18 +477,18 @@ def plot(summary: pd.DataFrame, overall: dict, arrays: dict) -> None:
 
 def main() -> None:
     setup_style()
-    OUT_DATA.mkdir(parents=True, exist_ok=True)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     print("[load] feature table:", FEATURE_TABLE, flush=True)
     print("[load] human cache:", HUMAN_CACHE, flush=True)
     feature_df, cache = load_inputs()
     print(f"[compute] proteins={len(cache['protein_ids']):,} features={DIM:,}", flush=True)
     summary, overall, arrays = compute_summary(feature_df, cache)
-    summary.to_csv(OUT_DATA / "human_pring_sae_category_summary.tsv", sep="\t", index=False)
-    with (OUT_DATA / "human_pring_sae_category_summary.json").open("w") as f:
+    summary.to_csv(OUT_DIR / "human_pring_sae_category_summary.tsv", sep="\t", index=False)
+    with (OUT_DIR / "human_pring_sae_category_summary.json").open("w") as f:
         json.dump({"overall": overall, "categories": summary.to_dict(orient="records")}, f, indent=2)
     plot(summary, overall, arrays)
     print("[done] wrote", OUT_FIG / "human_sae_feature_distribution.png", flush=True)
-    print("[done] wrote", OUT_DATA / "human_pring_sae_category_summary.tsv", flush=True)
+    print("[done] wrote", OUT_DIR / "human_pring_sae_category_summary.tsv", flush=True)
 
 
 if __name__ == "__main__":

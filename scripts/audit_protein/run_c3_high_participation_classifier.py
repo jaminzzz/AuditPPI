@@ -27,7 +27,7 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-from conf.paths import AUDIT
+from conf.paths import RESULTS_PROTEIN
 from src.eval.metrics import participation_t
 from src.eval.classification import binary_classification_metrics
 from src.models.estimators.xgboost import fit_xgb_classifier
@@ -36,7 +36,7 @@ from src.ppi_fingerprint import features as FE
 from src.participation.predictor import CACHE, assemble_protein_features
 
 
-OUT_DIR = AUDIT / "c3_high_participation"
+OUT_DIR = RESULTS_PROTEIN / "c3_high_participation"
 
 
 def node_metrics(ids: Sequence[str], y: np.ndarray, p: np.ndarray, t: Mapping[str, float], degree: Mapping[str, int]) -> dict:

@@ -8,7 +8,7 @@ via conf.paths).
 
 Run with the E1 conda env (Biohub transformers fork). CSVs are read-only.
 
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python \
+  /data/wmzhu/anaconda3/envs/E1/bin/python \
       scripts/cache/cache_cross_species_esmc_fingerprints.py
 """
 from __future__ import annotations

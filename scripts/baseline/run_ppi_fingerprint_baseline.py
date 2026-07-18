@@ -2,10 +2,10 @@
 """Run the pooled-SAE fingerprint + classifier baseline and report AUROC/AUPRC.
 
     PY=/data/wmzhu/anaconda3/envs/E1/bin/python
-    $PY scripts/run_ppi_fingerprint_baseline.py --model xgb --rep binary --eval c3:test
-    $PY scripts/run_ppi_fingerprint_baseline.py --model tabpfn --rep sae_max --eval rf2ppi
-    $PY scripts/run_ppi_fingerprint_baseline.py --all                 # 3 models × 3 reps × {c3,cs,rf2ppi}
-    $PY scripts/run_ppi_fingerprint_baseline.py --all --species       # also each cross-species test set
+    $PY scripts/baseline/run_ppi_fingerprint_baseline.py --model xgb --rep binary --eval c3:test
+    $PY scripts/baseline/run_ppi_fingerprint_baseline.py --model tabpfn --rep sae_max --eval rf2ppi
+    $PY scripts/baseline/run_ppi_fingerprint_baseline.py --all                 # 3 models × 3 reps × {c3,cs,rf2ppi}
+    $PY scripts/baseline/run_ppi_fingerprint_baseline.py --all --species       # also each cross-species test set
 
 Per-benchmark native training (c3→c3:train, cross_species→human_train, rf2ppi→c3:train).
 """

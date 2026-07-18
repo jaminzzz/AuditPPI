@@ -36,13 +36,13 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-from conf.paths import AUDIT, PIC_DATA
+from conf.paths import RESULTS_PROTEIN, PIC_DATA, PIC_HUMAN_SAE_CACHE
 from src.eval.classification import binary_classification_metrics
 from src.models.estimators.xgboost import fit_xgb_classifier
 from src.participation.features import sequence_features
 
-DEFAULT_CACHE = AUDIT / "pic_essentiality" / "pic_human_esmc_sae_cache.pt"
-OUT_DIR = AUDIT / "pic_essentiality"
+DEFAULT_CACHE = PIC_HUMAN_SAE_CACHE
+OUT_DIR = RESULTS_PROTEIN / "pic_essentiality"
 
 FEATURE_KINDS = ("sae_max", "binary", "esmc_mean", "sequence_basic")
 

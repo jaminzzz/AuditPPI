@@ -14,7 +14,7 @@ cached so re-runs skip already-fetched ids. Only public accession ids leave the
 machine; no project code or secrets are transmitted.
 
 Run:
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/fetch_c3_uniprot_localization.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/prep/fetch_c3_uniprot_localization.py
 """
 from __future__ import annotations
 
@@ -28,9 +28,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from conf.paths import AUDIT
+from conf.paths import RESULTS_PAIR
 
-ALIGN_DIR = AUDIT / "negative_sampling_audit"
+ALIGN_DIR = RESULTS_PAIR / "negative_sampling_audit"
 OUT = ALIGN_DIR / "c3_uniprot_localization.parquet"
 
 ENDPOINT = "https://rest.uniprot.org/uniprotkb/accessions"

@@ -27,8 +27,8 @@ Inputs (all row-aligned, verified by export_c3_pair_id_alignment.py):
   - c3_{split}_pair_ids.parquet           (row -> id_a, id_b, label)
 
 Run in E1:
-  python scripts/analyze_c3_negative_sampling_bias.py --split test
-  python scripts/analyze_c3_negative_sampling_bias.py --split train
+  python scripts/audit_pair/analyze_c3_negative_sampling_bias.py --split test
+  python scripts/audit_pair/analyze_c3_negative_sampling_bias.py --split train
 """
 
 from __future__ import annotations
@@ -43,11 +43,11 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-auditppi")
 import numpy as np
 import pandas as pd
 
-from conf.paths import AUDIT, SAE_REPS as SAE_REP_ROOT
+from conf.paths import RESULTS_PAIR, PAIR_CACHES as SAE_REP_ROOT
 
 REP_DIR = {"sae_max": SAE_REP_ROOT / "sae_max", "binary": SAE_REP_ROOT / "binary_thr0"}
-ALIGN_DIR = AUDIT / "negative_sampling_audit"
-OUT_DIR = AUDIT / "negative_sampling_audit"
+ALIGN_DIR = RESULTS_PAIR / "negative_sampling_audit"
+OUT_DIR = RESULTS_PAIR / "negative_sampling_audit"
 
 
 def _load_rep(rep: str, split: str):

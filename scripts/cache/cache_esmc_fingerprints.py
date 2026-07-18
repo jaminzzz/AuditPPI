@@ -15,7 +15,7 @@ audit consumes via conf.paths (`ppi_fingerprint.baseline` /
 `analysis.participation_predictor`). The
 RAPPPID-C3 CSVs are read-only.
 
-  PYTHONPATH=. /data/wmzhu/anaconda3/envs/E1/bin/python scripts/cache/cache_esmc_fingerprints.py
+  /data/wmzhu/anaconda3/envs/E1/bin/python scripts/cache/cache_esmc_fingerprints.py
 """
 from __future__ import annotations
 

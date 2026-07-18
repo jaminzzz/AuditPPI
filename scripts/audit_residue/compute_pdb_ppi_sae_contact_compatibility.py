@@ -35,14 +35,14 @@ import numpy as np
 from scipy.spatial import cKDTree
 from scipy.stats import hypergeom
 
-from conf.paths import AUDIT, FEATURE_TABLE, PPI_DATA
+from conf.paths import RESULTS_RESIDUE, FEATURE_TABLE, PDB_PPI_SAE_CACHE, PPI_DATA
 from src.data.sae_cache import SaeCacheReader
 
 DEFAULT_DATA_ROOT = PPI_DATA
 DEFAULT_SURFACE_SIDES = (
-    AUDIT / "interface_grounding/pdb_ppi_pos_surface/posi_nohomo.side_surface_controls.tsv.gz"
+    RESULTS_RESIDUE / "interface_grounding/pdb_ppi_pos_surface/posi_nohomo.side_surface_controls.tsv.gz"
 )
-DEFAULT_SAE_CACHE = AUDIT / "interface_grounding/pdb_ppi_pos_sae_cache_gpu0"
+DEFAULT_SAE_CACHE = PDB_PPI_SAE_CACHE
 DEFAULT_FEATURE_TABLE = FEATURE_TABLE
 
 THREE2ONE = {
@@ -78,7 +78,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--out-dir",
         type=Path,
-        default=AUDIT / "interface_grounding/pdb_ppi_pos_sae_contact_compat_top4",
+        default=RESULTS_RESIDUE / "interface_grounding/pdb_ppi_pos_sae_contact_compat_top4",
     )
     p.add_argument("--feature-table", type=Path, default=DEFAULT_FEATURE_TABLE)
     p.add_argument("--contact-threshold", type=float, default=8.0)

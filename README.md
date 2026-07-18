@@ -15,7 +15,7 @@ to decompose *why* a predictor scores a pair as interacting, across three scales
 The framework is **diagnostic, not a new PPI scorer**: it re-examines existing
 benchmark splits, cached representations, and trained-model artifacts (feature
 rankings, TabPFN attention neighbourhoods). See
-`manuscripts/ncs_brief_communication_draft_v2.md` for the full write-up.
+`manuscripts/ncs_brief_communication_draft.md` for the full write-up.
 
 ---
 
@@ -26,9 +26,19 @@ AuditPPI/
 ├── conf/paths.py          Single source of truth for every path (edit here to relocate).
 ├── .project-root          Anchor marker; scripts find ROOT by walking up to this file.
 ├── data/
-│   ├── audit/             Audit outputs + source data for figures.
-│   ├── sae/               SAE artifacts: per-protein reps, feature table, seq caches.
-│   └── tabpfn/            TabPFN feature ranking + retrieval explanations.
+│   ├── raw/               Raw benchmark CSVs + RF2-PPI FASTAs (pair-level inputs).
+│   └── sae/               SAE artifacts (see the cache pipeline below):
+│       ├── seq_caches/     Stage 1: per-sequence pooled ESM-C/SAE fingerprints.
+│       ├── protein_caches/ Stage 2: per-dataset protein caches (UniProt-ID indexed).
+│       ├── pair_caches/    Stage 3: per-pair engineered feature matrices (was reps/).
+│       ├── residue_caches/ Residue-level SAE cache for the interface-grounding audit.
+│       └── feature_table/  ESMC-SAE feature reference table.
+├── results/               Audit PRODUCTS (sibling of data/, not inside it):
+│   ├── audit_protein/     Layer 1 -- participation / hubness / essentiality.
+│   ├── audit_pair/        Layer 2 -- endpoint-additive, TabPFN, neg-sampling.
+│   ├── audit_residue/     Layer 3 -- interface grounding.
+│   ├── analysis/          Cross-layer analyses (e.g. C3↔PRING feature overlap).
+│   └── misc/              Baseline fingerprint, cross-layer figure data, spare caches.
 ├── external/              Symlinks to shared read-only data lakes (see below).
 ├── src/
 │   ├── data/              Benchmark loaders, sequence I/O, and sparse SAE cache codec.
@@ -85,12 +95,12 @@ directory were left behind):
 
 | In-project dir | Constant | Size | Contents |
 |----------------|----------|------|----------|
-| `data/cross_species/` | `CROSS_SPECIES_DIR` | 509M | 7 cross-species qrels CSVs |
-| `data/rapppid_c3/` | `RAPPPID_C3_DIR` (+ `C3_{TRAIN,VAL,TEST}_CSV`) | 55M | 3 RAPPPID C3 split CSVs |
-| `data/rapppid_c1/` | `RAPPPID_C1_DIR` (+ `C1_{TRAIN,VAL,TEST}_CSV`) | 119M | 3 RAPPPID C1 split CSVs |
-| `data/rapppid_c2/` | `RAPPPID_C2_DIR` (+ `C2_{TRAIN,VAL,TEST}_CSV`) | 86M | 3 RAPPPID C2 split CSVs |
+| `data/raw/cross_species/` | `CROSS_SPECIES_DIR` | 509M | 7 cross-species qrels CSVs |
+| `data/raw/rapppid_c3/` | `RAPPPID_C3_DIR` (+ `C3_{TRAIN,VAL,TEST}_CSV`) | 55M | 3 RAPPPID C3 split CSVs |
+| `data/raw/rapppid_c1/` | `RAPPPID_C1_DIR` (+ `C1_{TRAIN,VAL,TEST}_CSV`) | 119M | 3 RAPPPID C1 split CSVs |
+| `data/raw/rapppid_c2/` | `RAPPPID_C2_DIR` (+ `C2_{TRAIN,VAL,TEST}_CSV`) | 86M | 3 RAPPPID C2 split CSVs |
 
-The C1/C2 CSVs are extracted from the same `C3_H5` store (all three Park &
+The C1/C2 CSVs are extracted from the same `RAPPPID_H5` store (all three Park &
 Marcotte leakage levels live under `interactions/{c1,c2,c3}/`) by
 `scripts/prep/export_rapppid_clevel_csvs.py`, in the same `(query,text,label)`
 schema as the C3 set. `conf.paths.RAPPPID_CLEVEL_CSVS` maps level → split → CSV,
@@ -108,7 +118,7 @@ Three of them supply audit inputs, wired through `conf/paths.py`:
 |----------|-------------------------|---------|
 | `PIC_DATA` | `PIC/data/human_data.pkl` | PIC essentiality classifier |
 | `PRING_ROOT` | `PRING/data_process/pring_dataset` | PRING participation / endpoint-additive audits |
-| `C3_H5` | `pllm-ppi-data-leakage/.../rapppid_[...].h5` | C1/C2/C3 pair + sequence store (datasets loader; C1/C2 CSV extraction) |
+| `RAPPPID_H5` | `pllm-ppi-data-leakage/.../rapppid_[...].h5` | C1/C2/C3 pair + sequence store (datasets loader; C1/C2 CSV extraction) |
 
 ---
 
@@ -185,18 +195,18 @@ code change (just re-run the editable install).
 
 ### Figure ↔ source-data map
 
-All figure scripts import `AUDIT` (source data) and `FIGURES` (output) from
-`conf/paths.py`:
+All figure scripts import the layered `RESULTS_*` roots (source data) and
+`FIGURES` (output) from `conf/paths.py`:
 
 | Figure | Script | Reads from |
 |--------|--------|-----------|
-| `figure1_auditppi_concept`, `figure2_auditppi_results` | `plot_audit_figures.py` | `data/audit/` |
-| `human_sae_degree_pca` | `plot_human_sae_degree_pca.py` | `data/audit/pring_participation` |
-| `human_sae_feature_distribution` | `plot_human_sae_feature_distribution.py` | `data/audit/pring_participation` + feature table |
-| `human_sae_hub_category_association` | `plot_human_sae_hub_category_association.py` | `data/audit/pring_participation` + feature table |
-| `supplementary_s1/s2/s3` | `plot_supplementary_audit_figures.py` | `data/audit/` + `data/sae/supplementary_inputs` |
-| `supplementary_s5_external_baseline_comparison` | `plot_supplementary_baseline_comparison.py` | `data/audit/ppi_fingerprint` + `supplementary_inputs` |
-| `tabpfn_case_4365_retrieval` | `plot_tabpfn_case_4365.py` | `data/tabpfn/tabpfn_retrieval_explanations` |
+| `figure1_auditppi_concept`, `figure2_auditppi_results` | `plot_audit_figures.py` | `results/audit_{protein,pair,residue}/` + `results/misc/` |
+| `human_sae_degree_pca` | `plot_human_sae_degree_pca.py` | `results/audit_protein/pring_participation` |
+| `human_sae_feature_distribution` | `plot_human_sae_feature_distribution.py` | `results/audit_protein/pring_participation` + feature table |
+| `human_sae_hub_category_association` | `plot_human_sae_hub_category_association.py` | `results/audit_protein/pring_participation` + feature table |
+| `supplementary_s1/s2/s3` | `plot_supplementary_audit_figures.py` | `results/audit_residue/` + `data/sae/supplementary_inputs` |
+| `supplementary_s5_external_baseline_comparison` | `plot_supplementary_baseline_comparison.py` | `results/misc/ppi_fingerprint` + `supplementary_inputs` |
+| `tabpfn_case_4365_retrieval` | `plot_tabpfn_case_4365.py` | `results/audit_pair/tabpfn/tabpfn_retrieval_explanations` |
 
 ---
 

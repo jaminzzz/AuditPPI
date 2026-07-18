@@ -12,7 +12,7 @@ import numpy as np
 from src.participation.config import (
     DEFAULT_PRING_CACHE,
     FALLBACK_CACHE_CANDIDATES,
-    OUT_DIR,
+    PRING_CACHE_DIR,
     TRAIN_SPECIES,
 )
 from src.participation.features import (
@@ -305,7 +305,7 @@ def species_cache_path(species: str) -> Path:
     species = species.lower()
     if species == TRAIN_SPECIES:
         return DEFAULT_PRING_CACHE
-    return OUT_DIR / f"pring_{species}_esmc_sae_cache.pt"
+    return PRING_CACHE_DIR / f"pring_{species}_esmc_sae_cache.pt"
 
 
 __all__ = [

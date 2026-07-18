@@ -10,7 +10,7 @@ S2: SAE fingerprint anatomy and compactness
 S3: transferable concepts and structural grounding
 
 Run:
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/plot_supplementary_audit_figures.py
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/figures/plot_supplementary_audit_figures.py
 """
 
 from __future__ import annotations
@@ -35,14 +35,14 @@ from matplotlib import gridspec, patches
 from matplotlib.colors import LinearSegmentedColormap
 
 from conf.paths import ROOT
-from conf.paths import AUDIT, FIGURES, SAE_SUPP_INPUTS
+from conf.paths import RESULTS_MISC, RESULTS_RESIDUE, FIGURES, SAE_SUPP_INPUTS
 
 # precomputed results/propensity JSONs (was SAE_PPI/ppi_fingerprint/outputs/)
 SAE_OUT = SAE_SUPP_INPUTS
 OUT_FIG = FIGURES
-OUT_DATA = AUDIT / "supplementary_audit_figures"
+OUT_DIR = RESULTS_MISC / "supplementary_audit_figures"
 OUT_FIG.mkdir(parents=True, exist_ok=True)
-OUT_DATA.mkdir(parents=True, exist_ok=True)
+OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 P = {
     "ink": "#2B2B2B",
@@ -257,9 +257,9 @@ def metric_rows_for_s1() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         ]
     )
 
-    participation.to_csv(OUT_DATA / "s1_participation_summary.tsv", sep="\t", index=False)
-    controls.to_csv(OUT_DATA / "s1_control_summary.tsv", sep="\t", index=False)
-    transfer.to_csv(OUT_DATA / "s1_transfer_summary.tsv", sep="\t", index=False)
+    participation.to_csv(OUT_DIR / "s1_participation_summary.tsv", sep="\t", index=False)
+    controls.to_csv(OUT_DIR / "s1_control_summary.tsv", sep="\t", index=False)
+    transfer.to_csv(OUT_DIR / "s1_transfer_summary.tsv", sep="\t", index=False)
     return participation, controls, transfer
 
 
@@ -435,9 +435,9 @@ def make_s2_fingerprint_interpretability() -> None:
     minimal = pd.read_csv(interp_dir / "2_minimal_fingerprint.csv")
     topk = pd.read_csv(SAE_OUT / "esmc" / "tabpfn_topk" / "summary_sae-id.csv")
 
-    categories.to_csv(OUT_DATA / "s2_category_attribution.tsv", sep="\t", index=False)
-    minimal.to_csv(OUT_DATA / "s2_minimal_fingerprint.tsv", sep="\t", index=False)
-    topk.to_csv(OUT_DATA / "s2_tabpfn_topk.tsv", sep="\t", index=False)
+    categories.to_csv(OUT_DIR / "s2_category_attribution.tsv", sep="\t", index=False)
+    minimal.to_csv(OUT_DIR / "s2_minimal_fingerprint.tsv", sep="\t", index=False)
+    topk.to_csv(OUT_DIR / "s2_tabpfn_topk.tsv", sep="\t", index=False)
 
     fig = plt.figure(figsize=(7.15, 4.45))
     gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.62, wspace=0.52)
@@ -553,17 +553,16 @@ def make_s3_transferable_grounding() -> None:
         / "rosetta_vs_c3_shap_compare.json"
     )
     interface = pd.read_csv(
-        ROOT
-        / "data"
+        RESULTS_RESIDUE
         / "interface_grounding"
         / "pdb_ppi_pos_sae_enrichment_all_noninterface"
         / "interface_grounded_category_summary.tsv",
         sep="\t",
     )
 
-    with open(OUT_DATA / "s3_transferable_vs_bias_features.json", "w") as fh:
+    with open(OUT_DIR / "s3_transferable_vs_bias_features.json", "w") as fh:
         json.dump(transfer, fh, indent=2)
-    interface.to_csv(OUT_DATA / "s3_interface_grounding_categories.tsv", sep="\t", index=False)
+    interface.to_csv(OUT_DIR / "s3_interface_grounding_categories.tsv", sep="\t", index=False)
 
     fig = plt.figure(figsize=(7.15, 4.55))
     gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.62, wspace=0.56)
