@@ -16,6 +16,8 @@ by the loader that needs them.
 from __future__ import annotations
 
 import pickle
+import sys
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -25,6 +27,29 @@ import numpy as np
 from conf.paths import PIC_DATASET_PKL, PRING_ROOT
 
 LABEL_KINDS = ("binary", "continuous")
+
+
+def _read_legacy_dataframe(path: str | Path):
+    """Unpickle a DataFrame written with an older numpy, robustly.
+
+    The vendored PIC pickle stores numpy arrays that reference the historical
+    ``numpy.core`` module path. Current numpy keeps that path only as a noisy
+    deprecated shim, and a future numpy will drop it entirely -- at which point a
+    naive :func:`pickle.load` would fail with ``ModuleNotFoundError``. Alias the
+    old path onto the current ``numpy._core`` so the load survives that removal,
+    and silence the (understood) deprecation while reading.
+    """
+    core = getattr(np, "_core", None)
+    if core is not None:
+        sys.modules.setdefault("numpy.core", core)
+        for sub in ("multiarray", "numeric", "umath", "_multiarray_umath"):
+            submodule = getattr(core, sub, None)
+            if submodule is not None:
+                sys.modules.setdefault(f"numpy.core.{sub}", submodule)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        with open(path, "rb") as handle:
+            return pickle.load(handle)
 
 
 @dataclass
@@ -86,8 +111,7 @@ def load_pic(dataset: str = "human", *, label_col: Optional[str] = None) -> Prot
             raise ValueError("PIC 'cell' dataset has per-cell-line columns; pass an explicit label_col")
         label_col = dataset
 
-    with open(PIC_DATASET_PKL[dataset], "rb") as handle:
-        frame = pickle.load(handle)
+    frame = _read_legacy_dataframe(PIC_DATASET_PKL[dataset])
     if label_col not in frame.columns:
         raise ValueError(f"label_col {label_col!r} not in PIC {dataset!r} columns")
 

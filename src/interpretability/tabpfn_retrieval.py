@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.analysis.cross_species_probe import stratified_indices
+from src.features.cross_species_probe import stratified_indices
 
 
 def load_split_with_indices(path: Path, max_rows: int | None, seed: int):

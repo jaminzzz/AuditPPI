@@ -33,7 +33,7 @@ from conf.paths import (
     TABPFN_RANKING,
 )
 from src.runtime import setup_device
-from src.analysis.cross_species_probe import (
+from src.features.cross_species_probe import (
     build_dense_sym_topk,
     classification_metrics as metrics,
     predict_proba_chunked,
@@ -49,6 +49,7 @@ from src.interpretability.tabpfn_retrieval import (
     top_shared_features,
 )
 from src.models.estimators.tabpfn import fit_tabpfn
+from src.experiments.results import dump_experiment
 
 
 DEFAULT_EMBEDDING_DIR = PAIR_CACHES_BINARY
@@ -579,7 +580,17 @@ def main() -> int:
         "risk_score_p95": percentile(risk, 95),
         "elapsed_sec": round(time.time() - start_time, 3),
     }
-    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    dump_experiment(
+        out_dir / "summary.json",
+        task="tabpfn_c3_attention_feature_label",
+        dataset="c3",
+        features=f"sae_top{args.top_k}_{args.top_k_mode}",
+        split=args.query_split,
+        model="tabpfn",
+        seed=args.seed,
+        payload=summary,
+        metrics={"auroc": summary["test_auroc"], "auprc": summary["test_auprc"]},
+    )
     make_report(out_dir, summary, query_rows)
     draw_svg(out_dir, query_rows, summary)
 

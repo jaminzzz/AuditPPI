@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from conf.model import REPRESENTATIONS
 from conf.paths import (
     RESULTS_MISC,
     CROSS_SPECIES_SEQ_CACHE,
@@ -10,7 +11,6 @@ from conf.paths import (
 )
 
 MODEL_NAMES = ("xgb", "tabpfn", "dualtower")
-REPRESENTATIONS = ("binary", "sae_max", "esmc_mean")
 
 CACHE = {
     "c3": ESMC_DEFAULT_SEQ_CACHE,

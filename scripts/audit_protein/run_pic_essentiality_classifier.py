@@ -116,7 +116,7 @@ def main() -> None:
     p.add_argument("--feature-kind", choices=[*FEATURE_KINDS, "all"], default="all")
     p.add_argument("--test-ratio", type=float, default=0.1)
     p.add_argument("--val-ratio", type=float, default=0.1)
-    p.add_argument("--seed", "--random-seed", dest="random_seed", type=int, default=DEFAULT_SEED)
+    p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--kmer", type=int, default=2)
     p.add_argument("--n-estimators", type=int, default=3000)
     p.add_argument("--max-depth", type=int, default=4)
@@ -126,8 +126,8 @@ def main() -> None:
     args = p.parse_args()
 
     # Global RNG seed for the whole run; the deterministic PIC split below reseeds
-    # random.seed(args.random_seed) locally to reproduce its exact row shuffle.
-    seed_all(args.random_seed)
+    # random.seed(args.seed) locally to reproduce its exact row shuffle.
+    seed_all(args.seed)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -140,7 +140,7 @@ def main() -> None:
         full_labels,
         test_ratio=args.test_ratio,
         val_ratio=args.val_ratio,
-        random_seed=args.random_seed,
+        random_seed=args.seed,
     )
     split_of = {}
     for i in tr_pos:
@@ -151,7 +151,7 @@ def main() -> None:
         split_of[full_ids[i]] = "test"
     print(
         f"[pic-split] full N={len(full_ids)} train={len(tr_pos)} val={len(va_pos)} "
-        f"test={len(te_pos)} (seed={args.random_seed})",
+        f"test={len(te_pos)} (seed={args.seed})",
         flush=True,
     )
 
@@ -189,7 +189,7 @@ def main() -> None:
         "label_col": args.label_col,
         "pic_split": {
             "source": "reproduced PIC get_index",
-            "random_seed": args.random_seed,
+            "random_seed": args.seed,
             "test_ratio": args.test_ratio,
             "val_ratio": args.val_ratio,
             "full_n": len(full_ids),
@@ -225,7 +225,7 @@ def main() -> None:
 
         clf = fit_xgb_classifier(
             Xtr, ytr, Xva, yva,
-            seed=args.random_seed,
+            seed=args.seed,
             n_estimators=args.n_estimators,
             max_depth=args.max_depth,
             learning_rate=args.lr,
@@ -258,7 +258,7 @@ def main() -> None:
         features="multi",
         split="test",
         model="xgboost_classifier",
-        seed=args.random_seed,
+        seed=args.seed,
         payload=out,
         metrics={
             kind: {

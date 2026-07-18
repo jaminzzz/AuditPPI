@@ -12,72 +12,34 @@ Representations (user-selected): ``binary`` = ``(esmc_sae_max > 0)`` (the partic
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
 import numpy as np
 
-from conf.model import DEFAULT_SEED, ESMC_DIM, ESMC_SAE_DIM, SAE_BINARY_THRESHOLD
-from src.ppi_fingerprint.config import REPRESENTATIONS
+from conf.model import DEFAULT_SEED, ESMC_SAE_DIM, REPRESENTATIONS
+from src.features.protein_cache import load_pooled_cache, pair_feature_rows, rep_dim
 
 DIM = ESMC_SAE_DIM  # SAE codebook size (source: conf.model)
 REPS = REPRESENTATIONS
 
-
-def load_pooled_cache(path: Path) -> Dict:
-    """Read a per-protein pooled cache → {seq2idx, esmc_mean, esmc_sae_max, esmc_sae_mean} (torch tensors)."""
-    import torch
-
-    d = torch.load(path, map_location="cpu", weights_only=False)
-    return {k: d[k] for k in ("seq2idx", "esmc_mean", "esmc_sae_max", "esmc_sae_mean")}
-
-
-def rep_dim(rep: str) -> int:
-    return ESMC_DIM if rep == "esmc_mean" else DIM
-
-
-def _rep_matrix(cache: Dict, rep: str):
-    """The per-protein matrix for a rep (torch tensor; binary is bool)."""
-    if rep == "binary":
-        return cache["esmc_sae_max"] > SAE_BINARY_THRESHOLD
-    if rep == "sae_max":
-        return cache["esmc_sae_max"]
-    if rep == "esmc_mean":
-        return cache["esmc_mean"]
-    raise ValueError(f"unknown rep {rep!r}; choose from {REPS}")
+# The pooled-cache load, the representation->matrix switch, and the
+# id/sequence->row assembly now live in ``src.features.protein_cache`` (shared
+# with the participation predictors, which removes the old participation ->
+# ppi_fingerprint back-dependency). ``load_pooled_cache`` / ``rep_dim`` are
+# re-exported above so callers keep using ``FE.load_pooled_cache`` / ``FE.rep_dim``.
 
 
 def assemble_pairs(bench, cache: Dict, rep: str):
-    """Benchmark pairs → per-protein rep vectors. Maps id → sequence (``bench.seqs``) → ``seq2idx`` → row.
+    """Benchmark pairs → per-protein rep vectors (shared assembly).
 
-    Returns ``(A, B, y, kept_idx)`` with A,B float32 torch tensors (n_kept, rep_dim), y int64, and
-    ``kept_idx`` the indices into ``bench.pairs`` that had both proteins cached (rest skipped)."""
-    import torch
-
-    seq2idx = cache["seq2idx"]
-    mat = _rep_matrix(cache, rep)
-    rows_a: List[int] = []
-    rows_b: List[int] = []
-    ys: List[int] = []
-    kept: List[int] = []
-    for i, ((a, b), y) in enumerate(zip(bench.pairs, bench.labels)):
-        sa = bench.seqs.get(a)
-        sb = bench.seqs.get(b)
-        ja = seq2idx.get(sa) if sa is not None else None
-        jb = seq2idx.get(sb) if sb is not None else None
-        if ja is None or jb is None:
-            continue
-        rows_a.append(ja)
-        rows_b.append(jb)
-        ys.append(int(y))
-        kept.append(i)
-    if not kept:
-        return None
-    ia = torch.as_tensor(rows_a, dtype=torch.long)
-    ib = torch.as_tensor(rows_b, dtype=torch.long)
-    A = mat.index_select(0, ia).float()
-    B = mat.index_select(0, ib).float()
-    return A, B, np.asarray(ys, dtype=np.int64), kept
+    Thin wrapper over :func:`src.features.protein_cache.pair_feature_rows`; the
+    id → sequence (``bench.seqs``) → ``seq2idx`` → row mapping is shared with the
+    participation predictors. Returns ``(A, B, y, kept_idx)`` with A,B float32
+    torch tensors (n_kept, rep_dim), y int64, and ``kept_idx`` the indices into
+    ``bench.pairs`` that had both proteins cached (rest skipped); ``None`` when
+    no pair had both endpoints cached.
+    """
+    return pair_feature_rows(bench, cache, rep)
 
 
 def sym_features(A, B, cols: Optional[np.ndarray] = None) -> np.ndarray:

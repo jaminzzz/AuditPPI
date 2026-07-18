@@ -94,6 +94,15 @@ MAX_RESIDUES = 1022
 # scattered literal.
 SAE_BINARY_THRESHOLD = 0.0
 
+# The three pooled per-protein representations the SAE fingerprint line supports,
+# shared verbatim by the fingerprint baseline and the participation predictors
+# (previously re-declared in src/ppi_fingerprint/config.py and echoed in
+# src/participation/predictor.py):
+#   binary    -- (esmc_sae_max > SAE_BINARY_THRESHOLD), the participation channel
+#   sae_max   -- continuous pooled SAE max   [ESMC_SAE_DIM]
+#   esmc_mean -- raw ESM-C layer mean        [ESMC_DIM]
+REPRESENTATIONS: tuple[str, ...] = ("binary", "sae_max", "esmc_mean")
+
 # Project-wide RNG seed. Every model now uses this; the EBM/endpoint-additive
 # line previously pinned 7 to reproduce its first cached manuscript fits, but that
 # carve-out was retired so there is a single seed across the audit (see

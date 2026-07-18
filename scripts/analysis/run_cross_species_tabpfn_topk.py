@@ -16,7 +16,7 @@ from conf.model import DEFAULT_SEED
 from conf.paths import ROOT
 from src.experiments.results import dump_experiment
 from src.runtime import setup_device
-from src.analysis.cross_species_probe import (
+from src.features.cross_species_probe import (
     build_dense_sym_topk,
     classification_metrics,
     evaluate_species,

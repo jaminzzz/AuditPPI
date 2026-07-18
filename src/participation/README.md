@@ -1,7 +1,7 @@
 # Participation package
 
 `src.participation` owns protein-level participation and hubness workflows.
-It is separate from generic `src.analysis` because it defines domain-specific
+It is separate from generic `src.features` because it defines domain-specific
 labels, feature contracts, model fitting, calibration, and experiment protocol.
 
 - `labels.py`: full-graph degree/participation labels and PRING splits.

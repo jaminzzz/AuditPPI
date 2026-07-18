@@ -13,19 +13,9 @@ from typing import Dict, Hashable, Sequence, Tuple
 
 import numpy as np
 
-from src.eval.metrics import (
-    participation_t,
-    roc_auc,
-)
+from src.eval.metrics import participation_t
 
 Pair = Tuple[Hashable, Hashable]
-
-
-def _safe_auroc(labels: np.ndarray, scores: np.ndarray) -> float | None:
-    """AUROC, or None if a subset has only one class present (roc_auc undefined)."""
-    if labels.size == 0 or len(np.unique(labels)) < 2:
-        return None
-    return roc_auc(labels, scores)
 
 
 def benchmark_diagnostic(pairs: Sequence[Pair], labels: Sequence[int]) -> Dict:

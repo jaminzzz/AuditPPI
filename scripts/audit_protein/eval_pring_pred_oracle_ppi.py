@@ -9,7 +9,6 @@ logic ``min(pred_t[a], pred_t[b])``, and evaluates PRING pair-level files.
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +21,7 @@ from src.participation import (
     full_graph_participation_labels,
 )
 from src.eval.classification import safe_auprc, safe_auroc
+from src.experiments.results import dump_experiment
 
 PAIR_SETS = ("human_test", "all_test", "human_val", "human_train")
 SCORE_MODES = ("min", "product", "mean")
@@ -161,8 +161,16 @@ def main() -> None:
     out = args.out
     if out is None:
         out = args.pred_dir / f"pring_pred_oracle_ppi_{args.score_mode}_summary.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(summary, indent=2))
+    dump_experiment(
+        out,
+        task="pring_pred_oracle_ppi",
+        dataset="pring",
+        features="multi",
+        split="multi",
+        model=f"pred_oracle_{args.score_mode}",
+        seed=-1,
+        payload=summary,
+    )
     print(f"[done] wrote {out}", flush=True)
 
 

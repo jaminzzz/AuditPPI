@@ -7,13 +7,13 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import spearmanr
 
-from conf.model import DEFAULT_SEED, SAE_BINARY_THRESHOLD
+from conf.model import DEFAULT_SEED
 from src.data import pairs as benchmark_data
 from src.eval import evaluate_scorer
 from src.eval.metrics import participation_t
 from src.experiments.results import dump_experiment
+from src.features.protein_cache import load_pooled_cache, protein_feature_rows
 from src.models.estimators.xgboost import fit_xgb_regressor
-from src.ppi_fingerprint import features as fingerprint_features
 from src.ppi_fingerprint.config import CACHE, OUT_DIR
 
 TRAINVAL = {
@@ -54,43 +54,22 @@ def train_target_t(family: str):
     return target, degree, sequences
 
 
-def _representation_matrix(cache: dict, representation: str):
-    if representation == "binary":
-        return cache["esmc_sae_max"] > SAE_BINARY_THRESHOLD
-    if representation == "sae_max":
-        return cache["esmc_sae_max"]
-    if representation == "esmc_mean":
-        return cache["esmc_mean"]
-    raise ValueError(
-        f"unknown representation {representation!r}; choose from {fingerprint_features.REPS}"
-    )
-
-
 def assemble_protein_features(
     protein_ids,
     sequences: dict[str, str],
     cache: dict,
     representation: str,
 ):
-    """Map protein IDs through sequence strings into pooled fingerprint rows."""
-    import torch
+    """Map protein IDs through sequence strings into pooled fingerprint rows.
 
-    sequence_to_index = cache["seq2idx"]
-    matrix = _representation_matrix(cache, representation)
-    rows = []
-    kept = []
-    for protein_id in protein_ids:
-        sequence = sequences.get(protein_id)
-        row = sequence_to_index.get(sequence) if sequence is not None else None
-        if row is None:
-            continue
-        rows.append(int(row))
-        kept.append(protein_id)
-    if not rows:
-        return None, []
-    indices = torch.as_tensor(rows, dtype=torch.long)
-    output = matrix.index_select(0, indices).float().numpy()
-    return output, kept
+    Shared assembly: delegates to
+    :func:`src.features.protein_cache.protein_feature_rows` (the same primitive
+    the fingerprint baseline's :func:`assemble_pairs` uses), so the
+    representation switch and the id/sequence → row logic live in exactly one
+    place. Returns ``(rows, kept_ids)`` with ``rows`` a float32 numpy array or
+    ``None`` when nothing was cached.
+    """
+    return protein_feature_rows(protein_ids, sequences, cache, representation)
 
 
 def _fit_participation_regressor(
@@ -131,7 +110,7 @@ def run_participation_oracle(
     """Train a sequence-only ``t_hat(p)`` predictor and score pairs by endpoint minimum."""
     if family not in TEST:
         raise ValueError(f"unknown family {family!r}; choose from {tuple(TEST)}")
-    cache = fingerprint_features.load_pooled_cache(CACHE[family])
+    cache = load_pooled_cache(CACHE[family])
     train_t, train_degree, train_sequences = train_target_t(family)
     train_ids = list(train_t)
     train_x, kept_train = assemble_protein_features(train_ids, train_sequences, cache, rep)

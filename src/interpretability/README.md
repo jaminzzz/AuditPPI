@@ -13,4 +13,4 @@ Current module:
 - `annotations.py`: shared SAE feature-table annotation joins.
 
 Pure statistics over saved predictions or feature matrices belong in
-`src.analysis`.
+`src.features`.

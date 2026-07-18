@@ -160,7 +160,8 @@ in `src/interpretability/`.
 **`audit_protein/`** (Layer 1) — sequence→participation oracles and
 high-participation classifiers on PRING / C3 / PIC.
 
-**`audit_pair/`** (Layer 2) — C3 endpoint-additive models (linear / GAM / EBM / MLP),
+**`audit_pair/`** (Layer 2) — C3 endpoint-additive models (EBM / MLP),
+PPI fingerprinting, and prediction on C1/C2/C3 and cross-species benchmarks, PRING and Bernett (xgboost),
 TabPFN retrieval-attention audit, negative-sampling & localization confound analyses.
 
 **`audit_residue/`** (Layer 3) — interface SAE enrichment (with surface-matched control)

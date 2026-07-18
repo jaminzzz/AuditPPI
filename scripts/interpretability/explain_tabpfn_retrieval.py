@@ -20,7 +20,7 @@ from conf.paths import (
     TABPFN_RETRIEVAL,
 )
 from src.runtime import setup_device
-from src.analysis.cross_species_probe import (
+from src.features.cross_species_probe import (
     build_dense_sym_topk,
     fit_tabpfn_probe,
     predict_proba_chunked,
