@@ -32,11 +32,16 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 from src.data.sae_cache import pack_sparse
 from conf.paths import ESMC_MODEL, ESMC_SAE, PPI_DATA, RESULTS_MISC
+from conf.model import (
+    ESMC_SAE_DEFAULT_LAYER, ESMC_SAE_AVAILABLE_LAYERS,
+    ESMC_DIM, ESMC_SAE_DIM, ESMC_SAE_K,
+)
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
 DEFAULT_DATA_ROOT = PPI_DATA
-LAYER = 60
+# NOTE: residue cap here is 2046 (PDB chains / AFDB domains can exceed the
+# standard 1022 pooled-cache budget), so this is intentionally NOT conf.MAX_RESIDUES.
 MAX_RESIDUES = 2046
 
 THREE2ONE = {
@@ -59,7 +64,16 @@ def parse_args():
         default="posi,nega",
         help="comma list for PDB_PPI: posi,nega; use posi for interface-grounding positive chains",
     )
-    p.add_argument("--out-dir", type=Path, default=RESULTS_MISC / "sae_pdb_ddi_cache")
+    p.add_argument(
+        "--layer", type=int, default=ESMC_SAE_DEFAULT_LAYER,
+        help=f"ESM-C SAE layer to probe (checkpoint has {list(ESMC_SAE_AVAILABLE_LAYERS)}; "
+             f"default {ESMC_SAE_DEFAULT_LAYER})",
+    )
+    p.add_argument(
+        "--out-dir", type=Path, default=None,
+        help=f"output dir (default: sae_pdb_ddi_cache, or sae_pdb_ddi_cache_lN when "
+             f"--layer != {ESMC_SAE_DEFAULT_LAYER})",
+    )
     p.add_argument(
         "--sequence-tsv",
         type=Path,
@@ -391,11 +405,15 @@ def cache_sae(args, seqs: dict[str, str]):
     ).to("cuda").eval()
     tok = AutoTokenizer.from_pretrained(str(MODEL))
     sae = AutoModel.from_pretrained(str(SAE), trust_remote_code=True)
-    sae.initialize_layers([LAYER])
-    layer = sae.layers[str(LAYER)]
+    sae.initialize_layers([args.layer])
+    layer = sae.layers[str(args.layer)]
     w_enc = layer.W_enc.detach().float().cuda()
     b_dec = layer.b_dec.detach().float().cuda()
     k = int(layer.params.k)
+    act_dim, dict_dim = w_enc.shape
+    assert act_dim == ESMC_DIM, (act_dim, ESMC_DIM)
+    assert dict_dim == ESMC_SAE_DIM, (dict_dim, ESMC_SAE_DIM)
+    assert k == ESMC_SAE_K, (k, ESMC_SAE_K)
     print(f"[sae] W_enc={tuple(w_enc.shape)} k={k}", flush=True)
 
     @torch.inference_mode()
@@ -441,7 +459,7 @@ def cache_sae(args, seqs: dict[str, str]):
         enc = tok(seqs_b, return_tensors="pt", padding=True)
         enc = {kk: vv.to("cuda") for kk, vv in enc.items()}
         with torch.inference_mode():
-            h = model(**enc, output_hidden_states=True).hidden_states[LAYER]
+            h = model(**enc, output_hidden_states=True).hidden_states[args.layer]
         am = enc["attention_mask"].bool()
         for bi, seq_id in enumerate(batch_ids):
             mask = am[bi].clone()
@@ -463,7 +481,7 @@ def cache_sae(args, seqs: dict[str, str]):
                 flush=True,
             )
 
-    txn.put(b"__meta__", struct.pack("<III", k, int(LAYER), 16384))
+    txn.put(b"__meta__", struct.pack("<III", k, int(args.layer), int(dict_dim)))
     txn.commit()
     env.sync()
     env.close()
@@ -476,6 +494,16 @@ def cache_sae(args, seqs: dict[str, str]):
 
 def main():
     args = parse_args()
+    if args.layer not in ESMC_SAE_AVAILABLE_LAYERS:
+        raise ValueError(
+            f"--layer {args.layer} not in ESMC_SAE_AVAILABLE_LAYERS={ESMC_SAE_AVAILABLE_LAYERS}"
+        )
+    if args.out_dir is None:
+        base = RESULTS_MISC / "sae_pdb_ddi_cache"
+        args.out_dir = (
+            base if args.layer == ESMC_SAE_DEFAULT_LAYER
+            else RESULTS_MISC / f"sae_pdb_ddi_cache_l{args.layer}"
+        )
     seqs, summary = build_manifests(args)
     print(
         f"[manifest] sequences={summary['n_sequences']} "

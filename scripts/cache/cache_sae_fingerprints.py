@@ -35,13 +35,13 @@ from conf.paths import (
     ESM2_650M_MODEL, ESM2_SAE_CKPT, INTERPLM_ROOT, ESM2_SEQ_CACHE,
     C3_TRAIN_CSV, C3_VAL_CSV, C3_TEST_CSV,
 )
+from conf.model import ESM2_LAYER, ESM2_DIM, ESM2_SAE_DIM, MAX_RESIDUES
 
 # InterPLM package (interplm.sae.dictionary.ReLUSAE) lives under external/InterPLM.
 sys.path.insert(0, str(INTERPLM_ROOT))
 
 CSV_SPLITS = {"train": C3_TRAIN_CSV, "val": C3_VAL_CSV, "test": C3_TEST_CSV}
 COL_A, COL_B = "query", "text"
-ESM_LAYER = 33  # last layer of esm2_t33 -> equals last_hidden_state
 
 
 def pick_gpu() -> str:
@@ -58,8 +58,8 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Cache ESM-2 650M + InterPLM-SAE pooled features")
     p.add_argument("--sae-path", type=str, default=str(ESM2_SAE_CKPT))
     p.add_argument("--esm-model", type=str, default=ESM2_650M_MODEL)
-    p.add_argument("--layer", type=int, default=ESM_LAYER)
-    p.add_argument("--max-length", type=int, default=1022, help="max residues kept (CLS/EOS extra)")
+    p.add_argument("--layer", type=int, default=ESM2_LAYER)
+    p.add_argument("--max-length", type=int, default=MAX_RESIDUES, help="max residues kept (CLS/EOS extra)")
     p.add_argument("--max-batch-tokens", type=int, default=8192,
                    help="length-bucketed batching budget (residues per ESM batch)")
     p.add_argument("--out", type=str, default=str(ESM2_SEQ_CACHE))
@@ -98,7 +98,8 @@ def main() -> None:
     sae = ReLUSAE.from_pretrained(args.sae_path, device=dev)
     sae.eval()
     D = sae.dict_size
-    assert sae.activation_dim == 1280, sae.activation_dim
+    assert D == ESM2_SAE_DIM, (D, ESM2_SAE_DIM)
+    assert sae.activation_dim == ESM2_DIM, (sae.activation_dim, ESM2_DIM)
     assert not bool(sae.normalize_to_sqrt_d), "expected normalize_to_sqrt_d=False"
     print(f"[sae] {sae.__class__.__name__} dict={D} act={sae.activation_dim} "
           f"sqrt_d={bool(sae.normalize_to_sqrt_d)}", flush=True)

@@ -13,6 +13,7 @@ from typing import Optional
 
 import numpy as np
 
+from conf.model import DEFAULT_SEED
 from conf.paths import PRING_ROOT
 from src.data.sequences import read_fasta
 from src.participation.cache import (
@@ -66,7 +67,7 @@ def run_pring_participation_oracle(
     self_loop_mode: str = "drop",
     drop_self_pairs: bool = True,
     val_frac: float = 0.1,
-    seed: int = 42,
+    seed: int = DEFAULT_SEED,
     kmer: int = 2,
     feature_kind: str = "sequence_basic",
     cache_path: Optional[Path] = None,

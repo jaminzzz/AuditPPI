@@ -27,6 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
+from conf.audit import SURFACE_RSASA_THRESHOLD
 from conf.paths import RESULTS_RESIDUE
 
 THREE2ONE = {
@@ -86,7 +87,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--side-masks", type=Path, required=True)
     p.add_argument("--unique-chains", type=Path, required=True)
     p.add_argument("--out-dir", type=Path, default=RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos_surface")
-    p.add_argument("--rsasa-threshold", type=float, default=0.20)
+    p.add_argument("--rsasa-threshold", type=float, default=SURFACE_RSASA_THRESHOLD)
     p.add_argument("--n-sphere-points", type=int, default=960)
     p.add_argument("--no-sanitize-pdb", action="store_true", help="load raw PDBs directly into MDTraj")
     p.add_argument("--workers", type=int, default=max(1, min(16, (os.cpu_count() or 2) // 2)))

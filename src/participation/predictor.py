@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import spearmanr
 
+from conf.model import DEFAULT_SEED, SAE_BINARY_THRESHOLD
 from src.data import pairs as benchmark_data
 from src.eval import evaluate_scorer
 from src.eval.metrics import participation_t
@@ -55,7 +56,7 @@ def train_target_t(family: str):
 
 def _representation_matrix(cache: dict, representation: str):
     if representation == "binary":
-        return cache["esmc_sae_max"] > 0
+        return cache["esmc_sae_max"] > SAE_BINARY_THRESHOLD
     if representation == "sae_max":
         return cache["esmc_sae_max"]
     if representation == "esmc_mean":
@@ -122,7 +123,7 @@ def run_participation_oracle(
     *,
     family: str = "c3",
     rep: str = "sae_max",
-    seed: int = 42,
+    seed: int = DEFAULT_SEED,
     holdout_fraction: float = 0.1,
     out_dir: Path = OUT_DIR,
     write: bool = True,

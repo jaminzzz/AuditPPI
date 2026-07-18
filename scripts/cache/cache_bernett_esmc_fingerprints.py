@@ -29,11 +29,13 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 from conf.paths import (
     ESMC_MODEL, ESMC_SAE, BERNETT_DIR, BERNETT_SPLIT_CSVS, BERNETT_SEQ_CACHE,
 )
+from conf.model import (
+    ESMC_SAE_DEFAULT_LAYER, ESMC_SAE_AVAILABLE_LAYERS,
+    MAX_RESIDUES, ESMC_DIM, ESMC_SAE_DIM, ESMC_SAE_K,
+)
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
-LAYER = 60
-MAX_RESIDUES = 1022
 
 
 def pick_gpu() -> str:
@@ -51,6 +53,13 @@ def clean_seq(seq: str) -> str:
     return str(seq).replace("*", "").replace("f", "").replace("J", "L")
 
 
+def layer_tagged_cache_path(path: Path, layer: int) -> Path:
+    """Keep the default-layer path stable; tag other layers so they do not clobber it."""
+    if layer == ESMC_SAE_DEFAULT_LAYER:
+        return path
+    return path.with_name(f"{path.stem}_l{layer}{path.suffix}")
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Cache Bernett ESM-C pooled reps + SAE features")
     p.add_argument("--limit", type=int, default=0, help="cap #sequences (smoke test)")
@@ -61,12 +70,27 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data-dir", type=Path, default=BERNETT_DIR)
     p.add_argument("--device-id", type=int, default=None,
                    help="physical GPU id to use; default picks the GPU with most free memory")
-    p.add_argument("--out", type=Path, default=BERNETT_SEQ_CACHE)
+    p.add_argument(
+        "--layer", type=int, default=ESMC_SAE_DEFAULT_LAYER,
+        help=f"ESM-C SAE layer to probe (checkpoint has {list(ESMC_SAE_AVAILABLE_LAYERS)}; "
+             f"default {ESMC_SAE_DEFAULT_LAYER})",
+    )
+    p.add_argument(
+        "--out", type=Path, default=None,
+        help=f"output cache path (default: {BERNETT_SEQ_CACHE.name}, "
+             f"or *_lN.pt when --layer != {ESMC_SAE_DEFAULT_LAYER})",
+    )
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.layer not in ESMC_SAE_AVAILABLE_LAYERS:
+        raise ValueError(
+            f"--layer {args.layer} not in ESMC_SAE_AVAILABLE_LAYERS={ESMC_SAE_AVAILABLE_LAYERS}"
+        )
+    if args.out is None:
+        args.out = layer_tagged_cache_path(BERNETT_SEQ_CACHE, args.layer)
     device_id = str(args.device_id) if args.device_id is not None else pick_gpu()
     os.environ["CUDA_VISIBLE_DEVICES"] = device_id
     print(f"[device] CUDA_VISIBLE_DEVICES={device_id} (physical)", flush=True)
@@ -107,12 +131,15 @@ def main() -> None:
     tok = AutoTokenizer.from_pretrained(str(MODEL))
 
     sae = AutoModel.from_pretrained(str(SAE), trust_remote_code=True)
-    sae.initialize_layers([LAYER])
-    layer = sae.layers[str(LAYER)]
+    sae.initialize_layers([args.layer])
+    layer = sae.layers[str(args.layer)]
     w_enc = layer.W_enc.detach().float().cuda()
     b_dec = layer.b_dec.detach().float().cuda()
     k = int(layer.params.k)
     act_dim, dict_dim = w_enc.shape
+    assert act_dim == ESMC_DIM, (act_dim, ESMC_DIM)
+    assert dict_dim == ESMC_SAE_DIM, (dict_dim, ESMC_SAE_DIM)
+    assert k == ESMC_SAE_K, (k, ESMC_SAE_K)
     print(f"[sae] W_enc={tuple(w_enc.shape)} k={k}", flush=True)
 
     def sae_pool(h: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -138,16 +165,16 @@ def main() -> None:
         enc = tok(trunc, return_tensors="pt", padding=True)
         enc = {kk: v.to("cuda") for kk, v in enc.items()}
         out = model(**enc, output_hidden_states=True)
-        h60 = out.hidden_states[LAYER]
+        h = out.hidden_states[args.layer]
         am = enc["attention_mask"].bool()
         em, smax, smean = [], [], []
-        for i in range(h60.size(0)):
+        for i in range(h.size(0)):
             mask = am[i].clone()
             idxs = mask.nonzero(as_tuple=True)[0]
             if idxs.numel() > 2:
                 mask[idxs[0]] = False
                 mask[idxs[-1]] = False
-            hi = h60[i][mask].float()
+            hi = h[i][mask].float()
             em.append(hi.mean(0).half().cpu())
             fmax, fmean = sae_pool(hi)
             smax.append(fmax.half().cpu())
@@ -184,7 +211,7 @@ def main() -> None:
         "esmc_sae_mean": torch.stack(sae_mean),
         "meta": {
             "dataset": "bernett",
-            "model": "ESMC-6B", "layer": LAYER, "k": k, "dict": int(dict_dim),
+            "model": "ESMC-6B", "layer": args.layer, "k": k, "dict": int(dict_dim),
             "act_dim": int(act_dim), "max_residues": args.max_residues,
             "sae_token_chunk": args.sae_token_chunk,
             "data_dir": str(args.data_dir), "splits": dict(BERNETT_SPLIT_CSVS),

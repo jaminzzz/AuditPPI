@@ -19,6 +19,8 @@ from typing import Dict, Optional
 
 import numpy as np
 
+from conf.model import DEFAULT_SEED
+
 from src.eval import evaluate_scorer
 from src.data import pairs as D
 from src.models.architectures.dual_tower import train_dual_tower
@@ -50,7 +52,7 @@ def _assemble(name: str, rep: str):
 
 
 def run_baseline(model: str, rep: str, eval_name: str, *, top_k: int = 500,
-                 train_subsample: Optional[int] = 100000, val_frac: float = 0.1, seed: int = 42,
+                 train_subsample: Optional[int] = 100000, val_frac: float = 0.1, seed: int = DEFAULT_SEED,
                  out_dir: Path = OUT_DIR, write: bool = True) -> Dict:
     if model not in MODEL_NAMES:
         raise ValueError(f"unknown model {model!r}; choose from {MODEL_NAMES}")

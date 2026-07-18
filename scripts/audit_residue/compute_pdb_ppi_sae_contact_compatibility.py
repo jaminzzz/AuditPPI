@@ -35,6 +35,8 @@ import numpy as np
 from scipy.spatial import cKDTree
 from scipy.stats import hypergeom
 
+from conf.model import ESMC_SAE_DIM
+from conf.audit import CONTACT_DISTANCE_ANGSTROM, CONTROL_MIN_DISTANCE_ANGSTROM, FDR_ALPHA
 from conf.paths import RESULTS_RESIDUE, FEATURE_TABLE, PDB_PPI_SAE_CACHE, PPI_DATA
 from src.data.sae_cache import SaeCacheReader
 
@@ -81,12 +83,12 @@ def parse_args() -> argparse.Namespace:
         default=RESULTS_RESIDUE / "interface_grounding/pdb_ppi_pos_sae_contact_compat_top4",
     )
     p.add_argument("--feature-table", type=Path, default=DEFAULT_FEATURE_TABLE)
-    p.add_argument("--contact-threshold", type=float, default=8.0)
-    p.add_argument("--control-min-distance", type=float, default=12.0)
+    p.add_argument("--contact-threshold", type=float, default=CONTACT_DISTANCE_ANGSTROM)
+    p.add_argument("--control-min-distance", type=float, default=CONTROL_MIN_DISTANCE_ANGSTROM)
     p.add_argument("--control-per-contact", type=float, default=1.0)
     p.add_argument("--top-m", type=int, default=4)
     p.add_argument("--activation-threshold", type=float, default=0.0)
-    p.add_argument("--dim", type=int, default=16384)
+    p.add_argument("--dim", type=int, default=ESMC_SAE_DIM)
     p.add_argument("--seed", type=int, default=20260624)
     p.add_argument("--max-pairs", type=int, default=0, help="cap PDB chain pairs for smoke runs")
     p.add_argument("--progress-every", type=int, default=5000)
@@ -96,7 +98,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="write every observed feature-pair as annotated TSV; can be very large on full data",
     )
-    p.add_argument("--fdr-alpha", type=float, default=0.05)
+    p.add_argument("--fdr-alpha", type=float, default=FDR_ALPHA)
     p.add_argument("--min-log-or", type=float, default=0.5)
     p.add_argument("--min-contact-count", type=int, default=100)
     p.add_argument("--min-pair-support", type=int, default=10)

@@ -29,6 +29,7 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial import cKDTree
 
+from conf.audit import CONTACT_DISTANCE_ANGSTROM
 from conf.paths import PPI_DATA, RESULTS_RESIDUE
 
 csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
@@ -66,7 +67,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     p.add_argument("--csv-name", default="posi_nohomo.csv")
     p.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
-    p.add_argument("--contact-threshold", type=float, default=8.0)
+    p.add_argument("--contact-threshold", type=float, default=CONTACT_DISTANCE_ANGSTROM)
     p.add_argument(
         "--report-thresholds",
         default="8,10,12",

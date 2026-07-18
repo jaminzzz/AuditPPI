@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import torch
 
+from conf.model import DEFAULT_SEED
+
 
 def endpoint_gradient_input_attribution(
     model,
@@ -15,7 +17,7 @@ def endpoint_gradient_input_attribution(
     device: torch.device | str,
     batch_size: int,
     max_endpoints: int = 0,
-    seed: int = 42,
+    seed: int = DEFAULT_SEED,
 ) -> pd.DataFrame:
     """Aggregate ``x * d alpha(x)/dx`` over both endpoints of every pair."""
     if batch_size <= 0:

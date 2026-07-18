@@ -8,9 +8,10 @@ from pathlib import Path
 
 import numpy as np
 
+from conf.model import ESMC_SAE_DIM
 from src.models.estimators.tabpfn import fit_tabpfn as _fit_tabpfn
 
-SAE_DIM = 16384
+SAE_DIM = ESMC_SAE_DIM  # SAE codebook size; kept as a module alias for back-compat
 BLOCK_PRODUCT = "AND(a*b)"
 BLOCK_ABSDIFF = "|a-b|"
 

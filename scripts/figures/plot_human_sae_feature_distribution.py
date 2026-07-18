@@ -31,13 +31,13 @@ import numpy as np
 import pandas as pd
 import torch
 
+from conf.model import ESMC_SAE_DIM as DIM
 from conf.paths import RESULTS_PROTEIN, FEATURE_TABLE, FIGURES, PRING_HUMAN_SAE_CACHE
 
 HUMAN_CACHE = PRING_HUMAN_SAE_CACHE
 OUT_FIG = FIGURES
 OUT_DIR = RESULTS_PROTEIN / "sae_feature_distribution"
 
-DIM = 16384
 EPS = 1e-12
 TOP_KS = (64, 128, 256, 512)
 FOCUS_TOP_K = 256

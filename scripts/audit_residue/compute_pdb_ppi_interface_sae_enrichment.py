@@ -23,6 +23,8 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import fisher_exact
 
+from conf.audit import FDR_ALPHA
+from conf.model import ESMC_SAE_DIM
 from conf.paths import RESULTS_RESIDUE
 from src.data.sae_cache import SaeCacheReader
 
@@ -40,8 +42,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--activation-threshold", type=float, default=0.0)
     p.add_argument("--max-sides", type=int, default=0)
-    p.add_argument("--dim", type=int, default=16384)
-    p.add_argument("--fdr-alpha", type=float, default=0.05)
+    p.add_argument("--dim", type=int, default=ESMC_SAE_DIM)
+    p.add_argument("--fdr-alpha", type=float, default=FDR_ALPHA)
     p.add_argument("--min-log-or", type=float, default=0.5)
     p.add_argument("--min-interface-active", type=int, default=25)
     p.add_argument("--min-side-support", type=int, default=5)

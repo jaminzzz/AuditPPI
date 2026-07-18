@@ -33,6 +33,7 @@ import pandas as pd
 import torch
 from scipy.stats import spearmanr
 
+from conf.model import ESMC_SAE_DIM as DIM
 from conf.paths import RESULTS_PROTEIN, FEATURE_TABLE, FIGURES, PRING_HUMAN_SAE_CACHE
 
 HUMAN_CACHE = PRING_HUMAN_SAE_CACHE
@@ -45,7 +46,6 @@ DEGREE_TABLE = (
 OUT_FIG = FIGURES
 OUT_DIR = RESULTS_PROTEIN / "sae_hub_category"
 
-DIM = 16384
 TOP_K = 256
 EPS = 1e-12
 

@@ -32,6 +32,7 @@ import pandas as pd
 from matplotlib import gridspec
 from matplotlib.colors import LinearSegmentedColormap
 
+from conf.model import ESM2_SAE_DIM, ESM2_DIM
 from conf.paths import ROOT
 from conf.paths import RESULTS_MISC, FIGURES, SAE_SUPP_INPUTS, C3_TEST_CSV
 
@@ -287,7 +288,7 @@ def load_baseline_table() -> tuple[pd.DataFrame, pd.DataFrame]:
             "SAE fingerprint",
             str(inter_path.relative_to(ROOT)),
             inter.get("setup", "ESM-2 SAE, XGB"),
-            int(inter.get("feat_dim", inter.get("dim_per_protein", 10240))),
+            int(inter.get("feat_dim", inter.get("dim_per_protein", ESM2_SAE_DIM))),
             bool(inter.get("c3_trained", True)),
             bool(inter.get("pair_aware_extractor", False)),
             bool(inter.get("interpretable_bits", True)),
@@ -305,7 +306,7 @@ def load_baseline_table() -> tuple[pd.DataFrame, pd.DataFrame]:
             "SAE fingerprint",
             "make_report_figures.py verified ESM-2 phase constants",
             "XGB sym",
-            10240,
+            ESM2_SAE_DIM,
             True,
             False,
             True,
@@ -338,7 +339,7 @@ def load_baseline_table() -> tuple[pd.DataFrame, pd.DataFrame]:
     base_res = SAE_OUT / "baselines" / "results"
     for filename, label, dim in [
         ("deepnano_esmc_6b_concat.json", "DeepNano ESM-C", 2560),
-        ("deepnano_esm2_650m_concat.json", "DeepNano ESM-2", 1280),
+        ("deepnano_esm2_650m_concat.json", "DeepNano ESM-2", ESM2_DIM),
     ]:
         d = read_json(base_res / filename)
         add_row(

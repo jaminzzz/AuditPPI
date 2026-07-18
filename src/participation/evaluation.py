@@ -8,6 +8,7 @@ from typing import List, Mapping, Optional, Sequence, Tuple
 import numpy as np
 from scipy.stats import spearmanr
 
+from conf.audit import PARTICIPATION_QUANTILE
 from src.eval.classification import safe_auprc, safe_auroc
 
 Pair = Tuple[str, str]
@@ -43,7 +44,7 @@ def participation_node_metrics(
         and np.std(true_degree) > 0
         else None
     )
-    threshold = float(np.quantile(true_degree, 0.9)) if len(true_degree) else 0.0
+    threshold = float(np.quantile(true_degree, PARTICIPATION_QUANTILE)) if len(true_degree) else 0.0
     high_degree = (true_degree >= threshold).astype(int)
     return {
         "n": int(len(protein_ids)),

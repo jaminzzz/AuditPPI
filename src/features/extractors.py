@@ -18,6 +18,8 @@ import time
 from pathlib import Path
 from typing import Any, Sequence
 
+from conf.model import ESMC_LAYERS, MAX_RESIDUES
+
 import torch
 
 from .manifest import ProteinManifest
@@ -121,8 +123,8 @@ def extract_esmc_features(
     *,
     model_path: Path,
     sae_path: Path,
-    layers: Sequence[int] = (60, 80),
-    max_residues: int = 1022,
+    layers: Sequence[int] = ESMC_LAYERS,
+    max_residues: int = MAX_RESIDUES,
     token_budget: int = 3072,
     sae_token_chunk: int = 256,
     device: str = "cuda",
@@ -247,7 +249,7 @@ def extract_esm2_features(
     model_name: str,
     interplm_root: Path,
     sae_checkpoint: Path,
-    max_residues: int = 1022,
+    max_residues: int = MAX_RESIDUES,
     token_budget: int = 8192,
     sae_token_chunk: int = 256,
     normalize_sae_features: bool = True,

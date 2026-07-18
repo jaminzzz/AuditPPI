@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from conf.model import DEFAULT_SEED
+
 
 def fit_xgb(
     Xtr,
@@ -12,7 +14,7 @@ def fit_xgb(
     trees: int = 1000,
     depth: int = 4,
     lr: float = 0.05,
-    seed: int = 42,
+    seed: int = DEFAULT_SEED,
     cpu: bool = False,
 ):
     """Fit the canonical pair classifier, retrying on CPU after a GPU error."""
@@ -59,7 +61,7 @@ def fit_xgb_regressor(
     trees: int = 600,
     depth: int = 4,
     lr: float = 0.05,
-    seed: int = 42,
+    seed: int = DEFAULT_SEED,
     cpu: bool = False,
 ):
     """Fit the degree-weighted sequence-to-participation regressor."""
@@ -111,7 +113,7 @@ def fit_xgb_classifier(
     Xva,
     yva,
     *,
-    seed: int = 42,
+    seed: int = DEFAULT_SEED,
     n_estimators: int = 3000,
     max_depth: int = 4,
     learning_rate: float = 0.05,

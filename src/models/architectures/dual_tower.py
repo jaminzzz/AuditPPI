@@ -14,6 +14,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from conf.model import DEFAULT_SEED
+
 FUSE_MULTIPLIER = {"concat": 2, "hadamard": 1, "sym": 2, "sumprod": 2}
 FUSE_MODES = (*FUSE_MULTIPLIER, "cosine")
 
@@ -127,7 +129,7 @@ def train_dual_tower(
     max_epochs: int = 20,
     patience: int = 10,
     input_norm: bool = False,
-    seed: int = 42,
+    seed: int = DEFAULT_SEED,
     device: Optional[str] = None,
 ) -> DualTowerPredictor:
     """Train with the historical AuditPPI defaults and early stopping."""

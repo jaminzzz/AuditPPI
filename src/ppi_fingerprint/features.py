@@ -17,9 +17,10 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from conf.model import DEFAULT_SEED, ESMC_DIM, ESMC_SAE_DIM, SAE_BINARY_THRESHOLD
 from src.ppi_fingerprint.config import REPRESENTATIONS
 
-DIM = 16384  # SAE codebook size
+DIM = ESMC_SAE_DIM  # SAE codebook size (source: conf.model)
 REPS = REPRESENTATIONS
 
 
@@ -32,13 +33,13 @@ def load_pooled_cache(path: Path) -> Dict:
 
 
 def rep_dim(rep: str) -> int:
-    return 2560 if rep == "esmc_mean" else DIM
+    return ESMC_DIM if rep == "esmc_mean" else DIM
 
 
 def _rep_matrix(cache: Dict, rep: str):
     """The per-protein matrix for a rep (torch tensor; binary is bool)."""
     if rep == "binary":
-        return cache["esmc_sae_max"] > 0
+        return cache["esmc_sae_max"] > SAE_BINARY_THRESHOLD
     if rep == "sae_max":
         return cache["esmc_sae_max"]
     if rep == "esmc_mean":
@@ -87,7 +88,7 @@ def sym_features(A, B, cols: Optional[np.ndarray] = None) -> np.ndarray:
     return X[:, cols] if cols is not None else X
 
 
-def xgb_topk_columns(X: np.ndarray, y: np.ndarray, k: int, *, seed: int = 42) -> np.ndarray:
+def xgb_topk_columns(X: np.ndarray, y: np.ndarray, k: int, *, seed: int = DEFAULT_SEED) -> np.ndarray:
     """Top-k sym columns by a quick XGBoost gain fit (self-contained; for TabPFN's feature cap)."""
     import xgboost as xgb
 

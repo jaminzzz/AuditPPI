@@ -42,21 +42,27 @@ from conf.paths import (
     ESMC_MODEL, ESMC_SAE, PRING_ROOT, PROTEIN_SAE_CACHES,
     PRING_HUMAN_SAE_CACHE, ROSETTA_SEQ_CACHE,
 )
+from conf.model import (
+    ESMC_SAE_DEFAULT_LAYER, ESMC_SAE_AVAILABLE_LAYERS,
+    MAX_RESIDUES, ESMC_DIM, ESMC_SAE_DIM, ESMC_SAE_K,
+)
 from src.data.sequences import read_fasta
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
 OUT_ROOT = PROTEIN_SAE_CACHES
-LAYER = 60
-MAX_RESIDUES = 1022
 
 
 def species_fasta(species: str) -> Path:
     return PRING_ROOT / species / f"{species}_simple.fasta"
 
 
-def species_out(species: str) -> Path:
-    return OUT_ROOT / f"pring_{species}_esmc_sae_cache.pt"
+def species_out(species: str, layer: int = ESMC_SAE_DEFAULT_LAYER) -> Path:
+    """Default cache path; non-default layers are tagged so they do not clobber layer-60."""
+    base = OUT_ROOT / f"pring_{species}_esmc_sae_cache.pt"
+    if layer == ESMC_SAE_DEFAULT_LAYER:
+        return base
+    return base.with_name(f"{base.stem}_l{layer}{base.suffix}")
 
 
 def human_cache() -> Path:
@@ -81,7 +87,16 @@ def parse_args() -> argparse.Namespace:
         help="PRING species dir name, e.g. human / yeast / ecoli / arath",
     )
     p.add_argument("--fasta", type=Path, default=None, help="override the species FASTA path")
-    p.add_argument("--out", type=Path, default=None, help="override the output cache path")
+    p.add_argument(
+        "--layer", type=int, default=ESMC_SAE_DEFAULT_LAYER,
+        help=f"ESM-C SAE layer to probe (checkpoint has {list(ESMC_SAE_AVAILABLE_LAYERS)}; "
+             f"default {ESMC_SAE_DEFAULT_LAYER})",
+    )
+    p.add_argument(
+        "--out", type=Path, default=None,
+        help=f"override the output cache path (default: pring_{{species}}_esmc_sae_cache.pt, "
+             f"or *_lN.pt when --layer != {ESMC_SAE_DEFAULT_LAYER})",
+    )
     p.add_argument(
         "--seed-cache",
         type=Path,
@@ -115,7 +130,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--store-all-hidden-states",
         action="store_true",
-        help="store all transformer hidden states and select hidden_states[60]; default uses last_hidden_state",
+        help="store all transformer hidden states and select hidden_states[layer]; default uses last_hidden_state",
     )
     return p.parse_args()
 
@@ -187,18 +202,22 @@ def save_cache(
     torch.save(cache, out)
 
 
-def default_seed_caches(species: str) -> list[Path]:
+def default_seed_caches(species: str, layer: int = ESMC_SAE_DEFAULT_LAYER) -> list[Path]:
     """Prefill sources: RF2PPI pooled cache + the human PRING cache (for shared
     proteins). Skips the target species' own cache to avoid self-seeding."""
     candidates = [ROSETTA_SEQ_CACHE, human_cache()]
-    return [c for c in candidates if c != species_out(species)]
+    return [c for c in candidates if c != species_out(species, layer)]
 
 
 def main() -> None:
     args = parse_args()
+    if args.layer not in ESMC_SAE_AVAILABLE_LAYERS:
+        raise ValueError(
+            f"--layer {args.layer} not in ESMC_SAE_AVAILABLE_LAYERS={ESMC_SAE_AVAILABLE_LAYERS}"
+        )
     species = args.species.lower()
     fasta = args.fasta or species_fasta(species)
-    out = args.out or species_out(species)
+    out = args.out or species_out(species, args.layer)
     out.parent.mkdir(parents=True, exist_ok=True)
 
     if not fasta.exists():
@@ -246,7 +265,7 @@ def main() -> None:
     elif args.seed_cache is not None:
         seed_paths = list(args.seed_cache)
     else:
-        seed_paths = default_seed_caches(species)
+        seed_paths = default_seed_caches(species, args.layer)
 
     seed_source_counts: dict[str, int] = {}
     if not args.force_infer_all:
@@ -317,7 +336,7 @@ def main() -> None:
             "complete": True,
             "prefill_only": False,
             "model": "ESMC-6B",
-            "layer": LAYER,
+            "layer": args.layer,
             "max_residues": args.max_residues,
             "n_proteins": len(ids),
             "source_counts": {name: source.count(name) for name in sorted(set(source))},
@@ -348,12 +367,15 @@ def main() -> None:
     ).to("cuda").eval()
     tok = AutoTokenizer.from_pretrained(str(MODEL))
     sae = AutoModel.from_pretrained(str(SAE), trust_remote_code=True)
-    sae.initialize_layers([LAYER])
-    layer = sae.layers[str(LAYER)]
+    sae.initialize_layers([args.layer])
+    layer = sae.layers[str(args.layer)]
     w_enc = layer.W_enc.detach().float().cuda()
     b_dec = layer.b_dec.detach().float().cuda()
     k = int(layer.params.k)
     act_dim, dict_dim = w_enc.shape
+    assert act_dim == ESMC_DIM, (act_dim, ESMC_DIM)
+    assert dict_dim == ESMC_SAE_DIM, (dict_dim, ESMC_SAE_DIM)
+    assert k == ESMC_SAE_K, (k, ESMC_SAE_K)
     print(f"[sae] W_enc={tuple(w_enc.shape)} k={k}", flush=True)
 
     def sae_pool(h: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -379,16 +401,16 @@ def main() -> None:
         enc = tok(trunc, return_tensors="pt", padding=True)
         enc = {key: val.to("cuda") for key, val in enc.items()}
         out_model = model(**enc, output_hidden_states=args.store_all_hidden_states)
-        h60 = out_model.hidden_states[LAYER] if args.store_all_hidden_states else out_model.last_hidden_state
+        h = out_model.hidden_states[args.layer] if args.store_all_hidden_states else out_model.last_hidden_state
         am = enc["attention_mask"].bool()
         b_mean, b_max, b_mean_sae = [], [], []
-        for i in range(h60.size(0)):
+        for i in range(h.size(0)):
             mask = am[i].clone()
             idxs = mask.nonzero(as_tuple=True)[0]
             if idxs.numel() > 2:
                 mask[idxs[0]] = False
                 mask[idxs[-1]] = False
-            hi = h60[i][mask].float()
+            hi = h[i][mask].float()
             b_mean.append(hi.mean(0).half().cpu())
             fmax, fmean = sae_pool(hi)
             b_max.append(fmax.half().cpu())
@@ -420,7 +442,7 @@ def main() -> None:
         "complete": True,
         "prefill_only": False,
         "model": "ESMC-6B",
-        "layer": LAYER,
+        "layer": args.layer,
         "k": k,
         "dict": int(dict_dim),
         "act_dim": int(act_dim),

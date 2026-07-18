@@ -6,6 +6,7 @@ import sys
 
 import numpy as np
 
+from conf.model import DEFAULT_SEED
 from conf.paths import TABPFN_SRC
 
 
@@ -16,7 +17,7 @@ def fit_tabpfn(
     n_estimators: int = 4,
     subsample_samples: int = 50000,
     ignore_limits: bool = True,
-    seed: int = 42,
+    seed: int = DEFAULT_SEED,
     device: str = "cuda",
 ):
     try:

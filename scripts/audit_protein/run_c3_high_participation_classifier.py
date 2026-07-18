@@ -28,6 +28,7 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from conf.paths import RESULTS_PROTEIN
+from conf.audit import PARTICIPATION_QUANTILE
 from src.eval.metrics import participation_t
 from src.eval.classification import binary_classification_metrics
 from src.models.estimators.xgboost import fit_xgb_classifier
@@ -89,7 +90,7 @@ def write_predictions(path: Path, *, rows: Mapping[str, dict], pred: Mapping[str
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rep", choices=FE.REPS, default="sae_max")
-    ap.add_argument("--quantile", type=float, default=0.9)
+    ap.add_argument("--quantile", type=float, default=PARTICIPATION_QUANTILE)
     ap.add_argument("--threshold-t", type=float, default=None)
     ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
     ap.add_argument("--seed", type=int, default=42)

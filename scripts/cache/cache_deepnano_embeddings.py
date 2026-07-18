@@ -32,11 +32,10 @@ from conf.paths import (
     ESMC_MODEL, ESM2_650M_MODEL, DEEPNANO_DIR,
     C3_TRAIN_CSV, C3_VAL_CSV, C3_TEST_CSV,
 )
+from conf.model import ESMC_SAE_DEFAULT_LAYER, ESM2_LAYER, ESMC_DIM, ESM2_DIM, MAX_RESIDUES
 
 CSV_SPLITS = {"train": C3_TRAIN_CSV, "val": C3_VAL_CSV, "test": C3_TEST_CSV}
 COL_A, COL_B = "query", "text"
-ESMC_LAYER = 60
-ESM2_LAYER = 33
 
 
 def pick_gpu() -> str:
@@ -55,11 +54,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--pretrained-model", default="",
                    help="Override model path/name. Useful for local ESM-2 weights.")
     p.add_argument("--layer", type=int, default=None,
-                   help="Override hidden-state layer. Defaults: ESM-C 60, ESM-2 33.")
+                   help=f"Override hidden-state layer. Defaults: ESM-C {ESMC_SAE_DEFAULT_LAYER}, "
+                        f"ESM-2 {ESM2_LAYER}.")
     p.add_argument("--out-dir", type=Path, default=None)
     p.add_argument("--splits", default="train,val,test")
     p.add_argument("--limit", type=int, default=0, help="Cap unique sequences for smoke tests.")
-    p.add_argument("--max-residues", type=int, default=1022,
+    p.add_argument("--max-residues", type=int, default=MAX_RESIDUES,
                    help="Residues kept before model special tokens.")
     p.add_argument("--token-budget", type=int, default=3072,
                    help="Approximate residues per length-sorted batch.")
@@ -68,8 +68,13 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def default_out_dir(backbone: str) -> Path:
-    return DEEPNANO_DIR / f"deepnano_{backbone}"
+def default_out_dir(backbone: str, layer: int) -> Path:
+    """Tag non-default layers so layer-80 caches do not clobber the default dir."""
+    base = DEEPNANO_DIR / f"deepnano_{backbone}"
+    default_layer = ESMC_SAE_DEFAULT_LAYER if backbone == "esmc_6b" else ESM2_LAYER
+    if layer == default_layer:
+        return base
+    return DEEPNANO_DIR / f"deepnano_{backbone}_l{layer}"
 
 
 def collect_unique_sequences(splits: list[str], limit: int) -> list[str]:
@@ -126,7 +131,11 @@ def main() -> None:
     from transformers import AutoModel, AutoTokenizer, EsmModel
 
     splits = [s.strip() for s in args.splits.split(",") if s.strip()]
-    out_dir = args.out_dir or default_out_dir(args.backbone)
+    if args.backbone == "esmc_6b":
+        layer_idx = ESMC_SAE_DEFAULT_LAYER if args.layer is None else args.layer
+    else:
+        layer_idx = ESM2_LAYER if args.layer is None else args.layer
+    out_dir = args.out_dir or default_out_dir(args.backbone, layer_idx)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     seqs = collect_unique_sequences(splits, args.limit)
@@ -140,7 +149,6 @@ def main() -> None:
 
     if args.backbone == "esmc_6b":
         model_name = args.pretrained_model or str(ESMC_MODEL)
-        layer_idx = ESMC_LAYER if args.layer is None else args.layer
         print(f"[load] ESM-C model={model_name} layer={layer_idx}", flush=True)
         tok = AutoTokenizer.from_pretrained(model_name)
         model = AutoModel.from_pretrained(
@@ -170,7 +178,6 @@ def main() -> None:
 
     else:
         model_name = args.pretrained_model or ESM2_650M_MODEL
-        layer_idx = ESM2_LAYER if args.layer is None else args.layer
         print(f"[load] ESM-2 model={model_name} layer={layer_idx}", flush=True)
         tok = AutoTokenizer.from_pretrained(model_name)
         model = EsmModel.from_pretrained(model_name, add_pooling_layer=False).to(dev).eval()
@@ -207,6 +214,8 @@ def main() -> None:
         hidden_size = int(model.config.d_model)
     else:
         raise AttributeError("model config has neither hidden_size nor d_model")
+    expected_dim = ESMC_DIM if args.backbone == "esmc_6b" else ESM2_DIM
+    assert hidden_size == expected_dim, (args.backbone, hidden_size, expected_dim)
     mean = torch.empty(len(seqs), hidden_size, dtype=torch.float16)
     min_pool = torch.empty_like(mean)
     max_pool = torch.empty_like(mean)

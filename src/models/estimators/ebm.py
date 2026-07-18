@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from conf.model import DEFAULT_SEED
+
 
 def make_endpoint_ebm(
     *,
@@ -16,7 +18,11 @@ def make_endpoint_ebm(
     min_samples_leaf: int = 4,
     max_bins: int = 256,
     n_jobs: int = -2,
-    random_state: int = 7,
+    # Uses the project-wide seed. This line previously pinned 7 to reproduce the
+    # manuscript's originally cached EBM/endpoint-additive results; that carve-out
+    # was retired in favor of a single project seed, so re-runs now differ from
+    # those first cached fits (bagging + validation split reseed on 42).
+    random_state: int = DEFAULT_SEED,
 ):
     """Construct the endpoint EBM with pair interactions disabled."""
     from interpret.glassbox import ExplainableBoostingClassifier

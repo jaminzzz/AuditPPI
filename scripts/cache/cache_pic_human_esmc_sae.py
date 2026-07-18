@@ -36,21 +36,22 @@ from conf.paths import (
     ROSETTA_SEQ_CACHE, CROSS_SPECIES_SEQ_CACHE, BERNETT_SEQ_CACHE,
     PIC_HUMAN_SAE_CACHE, PRING_HUMAN_SAE_CACHE,
 )
+from conf.model import (
+    ESMC_SAE_DEFAULT_LAYER, ESMC_SAE_AVAILABLE_LAYERS,
+    MAX_RESIDUES, ESMC_DIM, ESMC_SAE_DIM, ESMC_SAE_K,
+)
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
 OUT = PIC_HUMAN_SAE_CACHE
 
-# Existing pooled caches to prefill from, all ESMC-6B / layer60 / k64 / dict16384.
+# Existing pooled caches to prefill from, all ESMC-6B / default layer / k64 / dict16384.
 SEED_CACHES = (
     ROSETTA_SEQ_CACHE,
     CROSS_SPECIES_SEQ_CACHE,
     BERNETT_SEQ_CACHE,
     PRING_HUMAN_SAE_CACHE,
 )
-
-LAYER = 60
-MAX_RESIDUES = 1022
 
 
 def pick_gpu() -> str:
@@ -63,11 +64,27 @@ def pick_gpu() -> str:
     )[0][1]
 
 
+def layer_tagged_cache_path(path: Path, layer: int) -> Path:
+    """Keep the default-layer path stable; tag other layers so they do not clobber it."""
+    if layer == ESMC_SAE_DEFAULT_LAYER:
+        return path
+    return path.with_name(f"{path.stem}_l{layer}{path.suffix}")
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Cache PIC human pooled ESM-C/SAE features")
     p.add_argument("--data", type=Path, default=PIC_DATA)
     p.add_argument("--label-col", type=str, default="human")
-    p.add_argument("--out", type=Path, default=OUT)
+    p.add_argument(
+        "--layer", type=int, default=ESMC_SAE_DEFAULT_LAYER,
+        help=f"ESM-C SAE layer to probe (checkpoint has {list(ESMC_SAE_AVAILABLE_LAYERS)}; "
+             f"default {ESMC_SAE_DEFAULT_LAYER})",
+    )
+    p.add_argument(
+        "--out", type=Path, default=None,
+        help=f"output cache path (default: {OUT.name}, "
+             f"or *_lN.pt when --layer != {ESMC_SAE_DEFAULT_LAYER})",
+    )
     p.add_argument("--max-residues", type=int, default=MAX_RESIDUES)
     p.add_argument(
         "--prefill-only",
@@ -82,7 +99,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--store-all-hidden-states",
         action="store_true",
-        help="store all hidden states and select hidden_states[60]; default uses last_hidden_state",
+        help="store all hidden states and select hidden_states[layer]; default uses last_hidden_state",
     )
     return p.parse_args()
 
@@ -148,6 +165,12 @@ def save_cache(
 
 def main() -> None:
     args = parse_args()
+    if args.layer not in ESMC_SAE_AVAILABLE_LAYERS:
+        raise ValueError(
+            f"--layer {args.layer} not in ESMC_SAE_AVAILABLE_LAYERS={ESMC_SAE_AVAILABLE_LAYERS}"
+        )
+    if args.out is None:
+        args.out = layer_tagged_cache_path(OUT, args.layer)
     args.out.parent.mkdir(parents=True, exist_ok=True)
 
     import torch
@@ -201,10 +224,10 @@ def main() -> None:
             "data_path": str(args.data),
             "label_col": args.label_col,
             "model": "ESMC-6B",
-            "layer": LAYER,
-            "k": 64,
-            "dict": 16384,
-            "act_dim": 2560,
+            "layer": args.layer,
+            "k": ESMC_SAE_K,
+            "dict": ESMC_SAE_DIM,
+            "act_dim": ESMC_DIM,
             "max_residues": args.max_residues,
             "complete": complete,
             "prefill_only": prefill_only,
@@ -256,12 +279,15 @@ def main() -> None:
     ).to("cuda").eval()
     tok = AutoTokenizer.from_pretrained(str(MODEL))
     sae = AutoModel.from_pretrained(str(SAE), trust_remote_code=True)
-    sae.initialize_layers([LAYER])
-    layer = sae.layers[str(LAYER)]
+    sae.initialize_layers([args.layer])
+    layer = sae.layers[str(args.layer)]
     w_enc = layer.W_enc.detach().float().cuda()
     b_dec = layer.b_dec.detach().float().cuda()
     k = int(layer.params.k)
     act_dim, dict_dim = w_enc.shape
+    assert act_dim == ESMC_DIM, (act_dim, ESMC_DIM)
+    assert dict_dim == ESMC_SAE_DIM, (dict_dim, ESMC_SAE_DIM)
+    assert k == ESMC_SAE_K, (k, ESMC_SAE_K)
     print(f"[sae] W_enc={tuple(w_enc.shape)} k={k}", flush=True)
 
     def sae_pool(h: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -286,16 +312,16 @@ def main() -> None:
         enc = tok(batch_seqs, return_tensors="pt", padding=True)
         enc = {key: val.to("cuda") for key, val in enc.items()}
         out = model(**enc, output_hidden_states=args.store_all_hidden_states)
-        h60 = out.hidden_states[LAYER] if args.store_all_hidden_states else out.last_hidden_state
+        h = out.hidden_states[args.layer] if args.store_all_hidden_states else out.last_hidden_state
         am = enc["attention_mask"].bool()
         em, smx, smn = [], [], []
-        for i in range(h60.size(0)):
+        for i in range(h.size(0)):
             mask = am[i].clone()
             idxs = mask.nonzero(as_tuple=True)[0]
             if idxs.numel() > 2:
                 mask[idxs[0]] = False
                 mask[idxs[-1]] = False
-            hi = h60[i][mask].float()
+            hi = h[i][mask].float()
             em.append(hi.mean(0).half().cpu())
             fmax, fmean = sae_pool(hi)
             smx.append(fmax.half().cpu())
