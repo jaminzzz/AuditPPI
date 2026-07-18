@@ -38,6 +38,7 @@ from scipy.stats import hypergeom
 from conf.model import ESMC_SAE_DIM
 from conf.audit import CONTACT_DISTANCE_ANGSTROM, CONTROL_MIN_DISTANCE_ANGSTROM, FDR_ALPHA
 from conf.paths import RESULTS_RESIDUE, FEATURE_TABLE, PDB_PPI_SAE_CACHE, PPI_DATA
+from src.runtime import seed_all
 from src.data.sae_cache import SaeCacheReader
 
 DEFAULT_DATA_ROOT = PPI_DATA
@@ -573,6 +574,10 @@ def main() -> None:
     args = parse_args()
     if args.top_m <= 0:
         raise ValueError("--top-m must be positive")
+    # Global seed guard so any future global RNG use is reproducible; the
+    # per-pair control sampling keeps its own independent default_rng stream
+    # (stable_pair_seed) and is unaffected by this.
+    seed_all(args.seed)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     reader = SaeCacheReader(str(args.sae_cache_dir))
     dim = int(reader.meta.get("dim", args.dim))

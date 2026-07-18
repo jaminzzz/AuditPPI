@@ -81,10 +81,17 @@ def assemble_pairs(bench, cache: Dict, rep: str):
 
 
 def sym_features(A, B, cols: Optional[np.ndarray] = None) -> np.ndarray:
-    """``sym = [A⊙B, |A−B|]`` (float32, n × 2·rep_dim). If ``cols`` given, return only those columns."""
-    prod = (A * B).numpy()
-    diff = (A - B).abs().numpy()
-    X = np.concatenate([prod, diff], axis=1).astype(np.float32, copy=False)
+    """``sym = [A⊙B, |A−B|]`` (float32, n × 2·rep_dim). If ``cols`` given, return only those columns.
+
+    Thin numpy adapter over the canonical torch ``pair_features(..., "sym")`` so the
+    ``[A*B, abs(A-B)]`` definition lives in exactly one place (``src.features.pairs``).
+    A/B arrive as float32 torch tensors, so this is bit-for-bit the old
+    ``concatenate([(A*B), (A-B).abs()])``; the numpy cast + column select is the only
+    ppi_fingerprint-specific bit (TabPFN's feature cap needs a fixed column subset).
+    """
+    from src.features.pairs import pair_features
+
+    X = pair_features(A, B, "sym").numpy().astype(np.float32, copy=False)
     return X[:, cols] if cols is not None else X
 
 

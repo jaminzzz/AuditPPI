@@ -32,7 +32,7 @@ import pandas as pd
 from matplotlib import gridspec
 from matplotlib.colors import LinearSegmentedColormap
 
-from conf.model import ESM2_SAE_DIM, ESM2_DIM
+from conf.model import ESM2_SAE_DIM, ESM2_DIM, DEFAULT_SEED
 from conf.paths import ROOT
 from conf.paths import RESULTS_MISC, FIGURES, SAE_SUPP_INPUTS, C3_TEST_CSV
 
@@ -517,7 +517,7 @@ def predict_xgb_test_scores(spec: dict) -> tuple[np.ndarray, np.ndarray]:
         "colsample_bytree": 0.5,
         "tree_method": "hist",
         "device": "cpu",
-        "seed": 42,
+        "seed": DEFAULT_SEED,
         "nthread": max(1, os.cpu_count() or 1),
     }
     booster = xgb.train(

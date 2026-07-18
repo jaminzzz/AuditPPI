@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from conf.model import DEFAULT_SEED
 from conf.paths import RESULTS_PAIR, PAIR_CACHES as SAE_REP_ROOT
 from src.eval.metrics import pair_score_metrics as metrics
 from src.runtime import seed_all
@@ -101,7 +102,7 @@ def write_pair_predictions(path: Path, split: dict[str, np.ndarray], prob: np.nd
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rep", choices=sorted(REP_DIR), default="sae_max")
-    ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     ap.add_argument("--top-k", type=int, default=300)
     ap.add_argument("--selection-chunk-size", type=int, default=512)
     ap.add_argument("--max-bins", type=int, default=256)

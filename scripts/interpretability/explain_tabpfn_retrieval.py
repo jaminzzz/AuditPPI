@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
+from conf.model import DEFAULT_SEED
 from conf.paths import (
     PAIR_CACHES_BINARY,
     RAPPPID_C3_DIR,
@@ -54,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--neighbors", type=int, default=10)
     parser.add_argument("--min-proba", type=float, default=0.8)
     parser.add_argument("--prefer-true-positive", action="store_true")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--predict-batch-size", type=int, default=5000)
     parser.add_argument("--tabpfn-n-estimators", type=int, default=4)
     parser.add_argument("--tabpfn-subsample-samples", type=int, default=50000)

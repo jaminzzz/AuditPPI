@@ -21,7 +21,9 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
+from conf.model import DEFAULT_SEED
 from conf.paths import RESULTS_PROTEIN, FEATURE_TABLE
+from src.runtime import seed_all
 from src.eval import evaluate_scorer
 from src.eval.metrics import participation_t
 from src.models.estimators.xgboost import fit_xgb_regressor
@@ -114,10 +116,14 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rep", choices=FE.REPS, default="sae_max")
     ap.add_argument("--family", choices=["c3"], default="c3")
-    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     ap.add_argument("--holdout-frac", type=float, default=0.1)
     ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
     args = ap.parse_args()
+
+    # Global RNG seed for the whole run; the holdout permutation below draws from
+    # its own local default_rng(args.seed) stream and is unaffected.
+    seed_all(args.seed)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     cache = FE.load_pooled_cache(CACHE[args.family])

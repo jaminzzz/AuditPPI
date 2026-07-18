@@ -27,6 +27,8 @@ import argparse
 import json
 from pathlib import Path
 
+from conf.model import DEFAULT_SEED
+
 from src.participation import (
     CROSS_SPECIES,
     FEATURE_KINDS,
@@ -65,7 +67,7 @@ def main() -> None:
     p.add_argument("--self-loop-mode", choices=["drop", "once"], default="drop")
     p.add_argument("--keep-self-pairs", action="store_true")
     p.add_argument("--val-frac", type=float, default=0.1)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--kmer", type=int, default=2, choices=[1, 2])
     p.add_argument("--n-estimators", type=int, default=800)
     p.add_argument("--max-depth", type=int, default=4)

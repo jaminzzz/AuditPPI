@@ -25,6 +25,7 @@ os.environ.setdefault("TABPFN_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
+from conf.model import DEFAULT_SEED
 from conf.paths import (
     RESULTS_PAIR,
     PAIR_CACHES_BINARY,
@@ -71,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-queries", type=int, default=0, help="0 means all queries")
     p.add_argument("--query-batch-size", type=int, default=64)
     p.add_argument("--train-subsample", type=int, default=None)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--predict-batch-size", type=int, default=5000)
     p.add_argument("--tabpfn-n-estimators", type=int, default=4)
     p.add_argument("--tabpfn-subsample-samples", type=int, default=50000)

@@ -30,6 +30,7 @@ import pandas as pd
 import torch
 from sklearn.metrics import roc_auc_score
 
+from conf.model import DEFAULT_SEED
 from conf.paths import RESULTS_PAIR, PAIR_CACHES as SAE_REP_ROOT
 from src.eval.metrics import pair_score_metrics as metrics
 from src.runtime import seed_all
@@ -267,7 +268,7 @@ def write_attribution_tables(model: EndpointMLP, args: argparse.Namespace, aux: 
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--rep", choices=sorted(REP_DIR), default="sae_max")
-    p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--epochs", type=int, default=80)
     p.add_argument("--patience", type=int, default=12)
     p.add_argument("--min-delta", type=float, default=1e-4)

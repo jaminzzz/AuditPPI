@@ -20,6 +20,7 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from conf.audit import PARTICIPATION_QUANTILE
+from conf.model import DEFAULT_SEED
 from src.data.sequences import read_fasta
 from src.eval.classification import (
     binary_classification_metrics,
@@ -135,7 +136,7 @@ def main() -> None:
     p.add_argument("--feature-kind", choices=[*FORMAL_FEATURE_KINDS, "all"], default="all")
     p.add_argument("--quantile", type=float, default=PARTICIPATION_QUANTILE)
     p.add_argument("--val-frac", type=float, default=0.2)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--n-estimators", type=int, default=3000)
     p.add_argument("--max-depth", type=int, default=4)
     p.add_argument("--lr", type=float, default=0.05)

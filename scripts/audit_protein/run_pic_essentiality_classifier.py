@@ -36,7 +36,9 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
+from conf.model import DEFAULT_SEED
 from conf.paths import RESULTS_PROTEIN, PIC_DATA, PIC_HUMAN_SAE_CACHE
+from src.runtime import seed_all
 from src.eval.classification import binary_classification_metrics
 from src.models.estimators.xgboost import fit_xgb_classifier
 from src.participation.features import sequence_features
@@ -114,7 +116,7 @@ def main() -> None:
     p.add_argument("--feature-kind", choices=[*FEATURE_KINDS, "all"], default="all")
     p.add_argument("--test-ratio", type=float, default=0.1)
     p.add_argument("--val-ratio", type=float, default=0.1)
-    p.add_argument("--random-seed", type=int, default=42)
+    p.add_argument("--seed", "--random-seed", dest="random_seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--kmer", type=int, default=2)
     p.add_argument("--n-estimators", type=int, default=3000)
     p.add_argument("--max-depth", type=int, default=4)
@@ -122,6 +124,10 @@ def main() -> None:
     p.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     p.add_argument("--early-stopping-rounds", type=int, default=200)
     args = p.parse_args()
+
+    # Global RNG seed for the whole run; the deterministic PIC split below reseeds
+    # random.seed(args.random_seed) locally to reproduce its exact row shuffle.
+    seed_all(args.random_seed)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 

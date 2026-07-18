@@ -29,6 +29,7 @@ import numpy as np
 
 from conf.paths import RESULTS_PROTEIN
 from conf.audit import PARTICIPATION_QUANTILE
+from conf.model import DEFAULT_SEED
 from src.eval.metrics import participation_t
 from src.eval.classification import binary_classification_metrics
 from src.models.estimators.xgboost import fit_xgb_classifier
@@ -93,7 +94,7 @@ def main() -> None:
     ap.add_argument("--quantile", type=float, default=PARTICIPATION_QUANTILE)
     ap.add_argument("--threshold-t", type=float, default=None)
     ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
-    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     ap.add_argument("--n-estimators", type=int, default=3000)
     ap.add_argument("--max-depth", type=int, default=4)
     ap.add_argument("--lr", type=float, default=0.05)

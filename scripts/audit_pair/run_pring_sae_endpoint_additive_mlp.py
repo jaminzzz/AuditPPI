@@ -24,6 +24,7 @@ import pandas as pd
 import torch
 from sklearn.metrics import roc_auc_score
 
+from conf.model import DEFAULT_SEED
 from conf.paths import RESULTS_PAIR, PRING_ROOT, PRING_HUMAN_SAE_CACHE
 from src.eval.metrics import pair_score_metrics as metrics
 from src.runtime import seed_all
@@ -286,7 +287,7 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--method", choices=[*METHODS, "all"], default="all")
     p.add_argument("--rep", choices=REPS, default="sae_max")
-    p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--epochs", type=int, default=80)
     p.add_argument("--patience", type=int, default=10)
     p.add_argument("--min-delta", type=float, default=1e-4)

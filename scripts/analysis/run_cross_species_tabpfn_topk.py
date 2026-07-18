@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
+from conf.model import DEFAULT_SEED
 from conf.paths import ROOT
 from src.runtime import setup_device
 from src.analysis.cross_species_probe import (
@@ -51,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-subsample", type=int, default=None)
     parser.add_argument("--test-subsample", type=int, default=None)
     parser.add_argument("--test-species", nargs="+", default=DEFAULT_TESTS)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--predict-batch-size", type=int, default=5000)
     parser.add_argument("--xgb-trees", type=int, default=1000)
     parser.add_argument("--xgb-depth", type=int, default=4)

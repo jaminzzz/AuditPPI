@@ -16,6 +16,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from conf.model import DEFAULT_SEED
 from src.ppi_fingerprint.config import MODEL_NAMES as MODELS
 from src.ppi_fingerprint.config import REPRESENTATIONS as REPS
 
@@ -43,7 +44,7 @@ def main() -> None:
     p.add_argument("--all", action="store_true", help="sweep MODELS × REPS × headline evals")
     p.add_argument("--species", action="store_true", help="add the 5 cross-species test sets to --all")
     p.add_argument("--device-id", type=int, default=None)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     args = p.parse_args()
 
     dev = str(args.device_id) if args.device_id is not None else pick_free_gpu()
