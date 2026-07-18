@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 
 from conf.model import DEFAULT_SEED
-
+from src.experiments.results import dump_experiment
 from src.participation import (
     DEFAULT_PRING_CACHE,
     FEATURE_KINDS,
@@ -143,7 +143,26 @@ def main() -> None:
     if not args.no_write:
         args.out_dir.mkdir(parents=True, exist_ok=True)
         stem = f"pring_human_{args.model_kind}_summary"
-        (args.out_dir / f"{stem}.json").write_text(json.dumps(summary, indent=2))
+        dump_experiment(
+            args.out_dir / f"{stem}.json",
+            task="protein.participation_oracle",
+            dataset="pring_human",
+            features="multi",
+            split="multi",
+            model=args.model_kind,
+            seed=args.seed,
+            payload=summary,
+            metrics={
+                method: {
+                    feature: {
+                        "test_spearman": cell.get("test_spearman"),
+                        "test_high_degree_auroc": cell.get("test_high_degree_auroc"),
+                    }
+                    for feature, cell in method_cells.items()
+                }
+                for method, method_cells in summary.items()
+            },
+        )
         print(f"\n[done] results in {args.out_dir}", flush=True)
 
 

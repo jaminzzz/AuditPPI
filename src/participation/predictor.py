@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +11,7 @@ from conf.model import DEFAULT_SEED, SAE_BINARY_THRESHOLD
 from src.data import pairs as benchmark_data
 from src.eval import evaluate_scorer
 from src.eval.metrics import participation_t
+from src.experiments.results import dump_experiment
 from src.models.estimators.xgboost import fit_xgb_regressor
 from src.ppi_fingerprint import features as fingerprint_features
 from src.ppi_fingerprint.config import CACHE, OUT_DIR
@@ -202,7 +202,22 @@ def run_participation_oracle(
     if write:
         out_dir.mkdir(parents=True, exist_ok=True)
         output_path = out_dir / f"seq_participation_oracle_{rep}_{family}.json"
-        output_path.write_text(json.dumps(result, indent=2))
+        dump_experiment(
+            output_path,
+            task="protein.participation_oracle",
+            dataset=family,
+            features=rep,
+            split="test",
+            model="xgboost_regressor",
+            seed=seed,
+            payload=result,
+            metrics={
+                "auroc": result.get("auroc"),
+                "auprc": result.get("auprc"),
+                "participation_oracle_auroc": result.get("participation_oracle_auroc"),
+                "spearman_that_vs_test_t": result.get("spearman_that_vs_test_t"),
+            },
+        )
         print(f"[done] wrote {output_path}", flush=True)
     print(
         f"[seq_oracle.{rep}.{family}] AUROC={result['auroc']} AUPRC={result['auprc']} "

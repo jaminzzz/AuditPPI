@@ -27,6 +27,7 @@ from conf.audit import FDR_ALPHA
 from conf.model import ESMC_SAE_DIM
 from conf.paths import RESULTS_RESIDUE
 from src.data.sae_cache import SaeCacheReader
+from src.experiments.results import dump_experiment
 
 
 def parse_args() -> argparse.Namespace:
@@ -325,9 +326,26 @@ def main() -> None:
         "ranking_interface_enrichment_tsv": str(ranking_path) if ranking_path else None,
         "missing_cache_key_examples": sorted(missing_keys)[:20],
     }
-    with (args.out_dir / "summary.json").open("w") as fh:
-        json.dump(summary, fh, indent=2, sort_keys=True)
-        fh.write("\n")
+    dump_experiment(
+        args.out_dir / "summary.json",
+        task="residue.interface_sae_enrichment",
+        dataset="pdb_ppi",
+        features="sae",
+        split="na",
+        model="na",
+        seed=-1,
+        payload=summary,
+        metrics={
+            "n_interface_grounded_features": summary["n_interface_grounded_features"],
+            "total_interface_residues": summary["total_interface_residues"],
+            "total_control_residues": summary["total_control_residues"],
+        },
+        hyperparameters={
+            "fdr_alpha": summary["fdr_alpha"],
+            "min_log_or": summary["min_log_or"],
+            "activation_threshold": summary["activation_threshold"],
+        },
+    )
     print(json.dumps(summary, indent=2, sort_keys=True))
 
 

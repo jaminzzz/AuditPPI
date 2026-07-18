@@ -14,7 +14,6 @@ per-protein t_hat values and SAE feature importances from the regressor.
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +25,7 @@ from conf.paths import RESULTS_PROTEIN, FEATURE_TABLE
 from src.runtime import seed_all
 from src.eval import evaluate_scorer
 from src.eval.metrics import participation_t
+from src.experiments.results import dump_experiment
 from src.models.estimators.xgboost import fit_xgb_regressor
 from src.data import pairs as D
 from src.ppi_fingerprint import features as FE
@@ -219,7 +219,23 @@ def main() -> None:
         },
     }
 
-    (args.out_dir / f"{stem}.json").write_text(json.dumps(summary, indent=2))
+    result_path = args.out_dir / f"{stem}.json"
+    dump_experiment(
+        result_path,
+        task="protein.participation_oracle",
+        dataset=args.family,
+        features=args.rep,
+        split="test",
+        model="xgboost_regressor",
+        seed=args.seed,
+        payload=summary,
+        metrics={
+            "auroc": summary.get("auroc"),
+            "auprc": summary.get("auprc"),
+            "spearman_that_vs_test_t": protein_metrics.get("spearman_that_vs_test_t"),
+        },
+        hyperparameters=summary.get("model"),
+    )
     imp.to_csv(args.out_dir / f"{stem}_feature_importance.tsv", sep="\t", index=False)
     imp.head(200).to_csv(args.out_dir / f"{stem}_top_features_annotated.tsv", sep="\t", index=False)
     write_protein_predictions(
@@ -238,7 +254,7 @@ def main() -> None:
         f"(deg>=3 {protein_metrics['spearman_that_vs_test_t_deg_ge3']})",
         flush=True,
     )
-    print(f"[done] wrote {args.out_dir / (stem + '.json')}", flush=True)
+    print(f"[done] wrote {result_path}", flush=True)
 
 
 if __name__ == "__main__":

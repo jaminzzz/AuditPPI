@@ -21,7 +21,6 @@ PRING high-degree classifier. Use ``--threshold-t 0.5`` for the direct
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -32,6 +31,7 @@ from conf.audit import PARTICIPATION_QUANTILE
 from conf.model import DEFAULT_SEED
 from src.eval.metrics import participation_t
 from src.eval.classification import binary_classification_metrics
+from src.experiments.results import dump_experiment
 from src.models.estimators.xgboost import fit_xgb_classifier
 from src.data import pairs as D
 from src.ppi_fingerprint import features as FE
@@ -168,7 +168,19 @@ def main() -> None:
     else:
         suffix = f"t_ge_{str(threshold).replace('.', 'p')}"
     stem = f"c3_{args.rep}_high_t_{suffix}_xgboost"
-    (args.out_dir / f"{stem}.json").write_text(json.dumps(metrics, indent=2))
+    result_path = args.out_dir / f"{stem}.json"
+    dump_experiment(
+        result_path,
+        task="protein.high_participation",
+        dataset="c3",
+        features=args.rep,
+        split="test",
+        model="xgboost_classifier",
+        seed=args.seed,
+        payload=metrics,
+        metrics=metrics["node_metrics"]["test"],
+        hyperparameters=metrics.get("model"),
+    )
     write_predictions(args.out_dir / f"{stem}_protein_predictions.tsv", rows=rows, pred=pred, threshold=threshold)
     print(
         f"[c3.{args.rep}.{label_mode}] threshold_t={threshold:.4g} "
@@ -177,7 +189,7 @@ def main() -> None:
         f"pos_rate={metrics['node_metrics']['test']['pos_rate']:.4f}",
         flush=True,
     )
-    print(f"[done] wrote {args.out_dir / (stem + '.json')}", flush=True)
+    print(f"[done] wrote {result_path}", flush=True)
 
 
 if __name__ == "__main__":

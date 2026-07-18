@@ -1,11 +1,11 @@
-"""Run provenance capture for reproducible audit outputs.
+"""Capture run metadata for reproducible audit outputs.
 
 `capture()` records *how* a result was produced — code version, environment,
 and the exact input files consumed — so a JSON metrics file can be traced back
 to a rerunnable state. It is deliberately best-effort and side-effect free: a
 missing git repo, an unimportable package, or a vanished input path degrades to
-``None``/``False`` rather than raising, because provenance must never be the
-thing that crashes an experiment.
+``None``/``False`` rather than raising, because capturing this metadata must
+never be the thing that crashes an experiment.
 """
 
 from __future__ import annotations

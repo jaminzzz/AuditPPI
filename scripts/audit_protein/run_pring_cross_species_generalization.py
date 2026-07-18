@@ -28,7 +28,7 @@ import json
 from pathlib import Path
 
 from conf.model import DEFAULT_SEED
-
+from src.experiments.results import dump_experiment
 from src.participation import (
     CROSS_SPECIES,
     FEATURE_KINDS,
@@ -124,7 +124,17 @@ def main() -> None:
     if not args.no_write:
         args.out_dir.mkdir(parents=True, exist_ok=True)
         stem = f"pring_crossspecies_{args.model_kind}_summary"
-        (args.out_dir / f"{stem}.json").write_text(json.dumps(summary, indent=2))
+        dump_experiment(
+            args.out_dir / f"{stem}.json",
+            task="protein.cross_species_generalization",
+            dataset="pring_cross_species",
+            features="multi",
+            split="multi",
+            model=args.model_kind,
+            seed=args.seed,
+            payload=summary,
+            metrics=summary,
+        )
         print(f"\n[done] results in {args.out_dir}", flush=True)
 
 

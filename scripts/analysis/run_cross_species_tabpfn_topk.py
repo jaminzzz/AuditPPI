@@ -14,6 +14,7 @@ import numpy as np
 
 from conf.model import DEFAULT_SEED
 from conf.paths import ROOT
+from src.experiments.results import dump_experiment
 from src.runtime import setup_device
 from src.analysis.cross_species_probe import (
     build_dense_sym_topk,
@@ -160,8 +161,26 @@ def main() -> None:
                 "mean_species_auprc": mean_auprc,
                 "elapsed_sec": round(time.time() - start, 3),
             }
-            (args.out_dir / f"{model_name}_{args.top_k_mode}_k{top_k}.json").write_text(
-                json.dumps(result, indent=2)
+            dump_experiment(
+                args.out_dir / f"{model_name}_{args.top_k_mode}_k{top_k}.json",
+                task="analysis.cross_species_tabpfn_topk",
+                dataset="cross_species",
+                features=f"binary_sym_{args.top_k_mode}_k{top_k}",
+                split="multi",
+                model=model_name,
+                seed=args.seed,
+                payload=result,
+                metrics={
+                    "human_val_auroc": val_metrics["auroc"],
+                    "human_val_auprc": val_metrics["auprc"],
+                    "mean_species_auroc": mean_auroc,
+                    "mean_species_auprc": mean_auprc,
+                },
+                hyperparameters={
+                    "top_k_mode": args.top_k_mode,
+                    "top_k": top_k,
+                    "input_dim": len(flat_features),
+                },
             )
             all_results.append(result)
             print(

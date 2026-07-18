@@ -7,7 +7,6 @@ human PRING protocol and re-exports the cross-species runner for compatibility.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +15,7 @@ import numpy as np
 from conf.model import DEFAULT_SEED
 from conf.paths import PRING_ROOT
 from src.data.sequences import read_fasta
+from src.experiments.results import dump_experiment
 from src.participation.cache import (
     best_existing_fallback_cache,
     prepare_features,
@@ -365,7 +365,18 @@ def run_pring_participation_oracle(
     if write:
         out_dir.mkdir(parents=True, exist_ok=True)
         stem = f"pring_human_{method.lower()}_{feature_kind}_{model_kind}"
-        (out_dir / f"{stem}.json").write_text(json.dumps(result, indent=2))
+        dump_experiment(
+            out_dir / f"{stem}.json",
+            task="protein.participation_oracle",
+            dataset=f"pring_human_{method.lower()}",
+            features=feature_kind,
+            split="test",
+            model=model_kind,
+            seed=seed,
+            payload=result,
+            metrics=result.get("node_metrics", {}).get("test"),
+            hyperparameters=result.get("model"),
+        )
         write_participation_predictions(
             out_dir / f"{stem}_protein_predictions.tsv",
             split_ids={"train": train_ids, "val": val_ids, "test": test_ids},

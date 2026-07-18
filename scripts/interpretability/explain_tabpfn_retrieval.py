@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from conf.model import DEFAULT_SEED
+from src.experiments.results import dump_experiment
 from conf.paths import (
     PAIR_CACHES_BINARY,
     RAPPPID_C3_DIR,
@@ -230,7 +231,27 @@ def main() -> None:
         "retrieval_score_type": score_name,
         "decoder_attention_available": attention is not None,
     }
-    (args.out_dir / "config.json").write_text(json.dumps(config, indent=2))
+    dump_experiment(
+        args.out_dir / "config.json",
+        task="interpretability.tabpfn_retrieval",
+        dataset="c3",
+        features=f"binary_sym_{args.top_k_mode}_k{args.top_k}",
+        split=args.query_split,
+        model="tabpfn",
+        seed=args.seed,
+        payload=config,
+        metrics={
+            "query_n_explained": config["query_n_explained"],
+            "input_dim": config["input_dim"],
+            "train_n": config["train_n"],
+        },
+        hyperparameters={
+            "top_k_mode": args.top_k_mode,
+            "top_k": args.top_k,
+            "neighbor_k": args.neighbors,
+            "retrieval_score_type": score_name,
+        },
+    )
     report = [
         "# TabPFN Retrieval Explanations",
         "",

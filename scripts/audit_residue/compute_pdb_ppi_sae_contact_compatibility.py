@@ -38,6 +38,7 @@ from scipy.stats import hypergeom
 from conf.model import ESMC_SAE_DIM
 from conf.audit import CONTACT_DISTANCE_ANGSTROM, CONTROL_MIN_DISTANCE_ANGSTROM, FDR_ALPHA
 from conf.paths import RESULTS_RESIDUE, FEATURE_TABLE, PDB_PPI_SAE_CACHE, PPI_DATA
+from src.experiments.results import dump_experiment
 from src.runtime import seed_all
 from src.data.sae_cache import SaeCacheReader
 
@@ -717,9 +718,27 @@ def main() -> None:
             "min_pair_support": args.min_pair_support,
         }
     )
-    with (args.out_dir / "summary.json").open("w") as fh:
-        json.dump(stats, fh, indent=2, sort_keys=True)
-        fh.write("\n")
+    dump_experiment(
+        args.out_dir / "summary.json",
+        task="residue.contact_compatibility",
+        dataset="pdb_ppi",
+        features="sae",
+        split="na",
+        model="na",
+        seed=args.seed,
+        payload=stats,
+        metrics={
+            "n_contact_residue_pairs_counted": stats.get("n_contact_residue_pairs_counted"),
+            "n_control_residue_pairs_counted": stats.get("n_control_residue_pairs_counted"),
+            "n_observed_contact_feature_pairs": stats.get("n_observed_contact_feature_pairs"),
+        },
+        hyperparameters={
+            "fdr_alpha": stats.get("fdr_alpha"),
+            "min_log_or": stats.get("min_log_or"),
+            "min_contact_count": stats.get("min_contact_count"),
+            "min_pair_support": stats.get("min_pair_support"),
+        },
+    )
     print(json.dumps(stats, indent=2, sort_keys=True))
 
 

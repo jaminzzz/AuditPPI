@@ -28,7 +28,6 @@ Design
 from __future__ import annotations
 
 import argparse
-import json
 import pickle
 import random
 from pathlib import Path
@@ -38,6 +37,7 @@ import numpy as np
 
 from conf.model import DEFAULT_SEED
 from conf.paths import RESULTS_PROTEIN, PIC_DATA, PIC_HUMAN_SAE_CACHE
+from src.experiments.results import dump_experiment
 from src.runtime import seed_all
 from src.eval.classification import binary_classification_metrics
 from src.models.estimators.xgboost import fit_xgb_classifier
@@ -251,7 +251,23 @@ def main() -> None:
 
     out = {**subset_summary, "results": results}
     out_path = args.out_dir / f"pic_{args.label_col}_frozen_sae_xgboost.json"
-    out_path.write_text(json.dumps(out, indent=2))
+    dump_experiment(
+        out_path,
+        task="protein.pic_essentiality",
+        dataset=f"pic_{args.label_col}",
+        features="multi",
+        split="test",
+        model="xgboost_classifier",
+        seed=args.random_seed,
+        payload=out,
+        metrics={
+            kind: {
+                "auroc": res["test"]["auroc"],
+                "auprc": res["test"]["auprc"],
+            }
+            for kind, res in results.items()
+        },
+    )
     print(f"[done] wrote {out_path}", flush=True)
 
 

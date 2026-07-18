@@ -13,7 +13,6 @@ and no protein-ID parameters. There is also no global bias term.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 
@@ -27,6 +26,7 @@ from sklearn.metrics import roc_auc_score
 from conf.model import DEFAULT_SEED
 from conf.paths import RESULTS_PAIR, PRING_ROOT, PRING_HUMAN_SAE_CACHE
 from src.eval.metrics import pair_score_metrics as metrics
+from src.experiments.results import dump_experiment
 from src.runtime import seed_all
 from src.models.architectures.endpoint_mlp import EndpointMLP
 
@@ -52,8 +52,8 @@ def read_pair_file(path: Path) -> tuple[list[str], list[str], np.ndarray]:
     return a_ids, b_ids, np.asarray(labels, dtype=np.int64)
 
 
-def load_cache(rep: str) -> tuple[torch.Tensor, dict[str, int]]:
-    cache = torch.load(HUMAN_CACHE, map_location="cpu", weights_only=False)
+def load_cache(rep: str, cache_path: Path) -> tuple[torch.Tensor, dict[str, int]]:
+    cache = torch.load(cache_path, map_location="cpu", weights_only=False)
     mat = cache["esmc_sae_max"]
     if rep == "binary":
         mat = (mat > 0).to(torch.uint8)
@@ -250,7 +250,7 @@ def train_one(args: argparse.Namespace, method: str, mat: torch.Tensor, id_to_id
             "test_alpha_b_mean": float(test_pack[2].mean()),
         },
         "input_files": {
-            "cache": str(HUMAN_CACHE),
+            "cache": str(args.cache_path),
             "train": train_split["path"],
             "val": val_split["path"],
             "test": test_split["path"],
@@ -287,6 +287,19 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--method", choices=[*METHODS, "all"], default="all")
     p.add_argument("--rep", choices=REPS, default="sae_max")
+    p.add_argument(
+        "--cache-path",
+        type=Path,
+        default=HUMAN_CACHE,
+        help="Protein-level pooled SAE cache (key 'esmc_sae_max' + 'uniprotid2idx'). "
+        "Training is fixed to PRING human; species are a held-out test concern.",
+    )
+    p.add_argument(
+        "--out-dir",
+        type=Path,
+        default=OUT_DIR,
+        help="Directory for metrics/history/summary outputs.",
+    )
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--epochs", type=int, default=80)
     p.add_argument("--patience", type=int, default=10)
@@ -306,8 +319,8 @@ def main() -> None:
     p.add_argument("--write-predictions", action="store_true")
     args = p.parse_args()
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    mat, id_to_idx = load_cache(args.rep)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    mat, id_to_idx = load_cache(args.rep, args.cache_path)
     methods = METHODS if args.method == "all" else (args.method,)
     all_results = {}
     rows = []
@@ -315,12 +328,23 @@ def main() -> None:
         result, aux = train_one(args, method, mat, id_to_idx)
         all_results[method] = result
         stem = f"pring_{method.lower()}_endpoint_additive_mlp_{args.rep}_h{args.hidden}_l{args.layers}_nobias"
-        result_path = OUT_DIR / f"{stem}_metrics.json"
-        history_path = OUT_DIR / f"{stem}_history.tsv"
-        result_path.write_text(json.dumps(result, indent=2))
+        result_path = args.out_dir / f"{stem}_metrics.json"
+        history_path = args.out_dir / f"{stem}_history.tsv"
+        dump_experiment(
+            result_path,
+            task="pair.endpoint_additive_mlp",
+            dataset=f"pring_human_{method.lower()}",
+            features=args.rep,
+            split="test",
+            model="endpoint_additive_mlp",
+            seed=args.seed,
+            payload=result,
+            metrics=result["test"],
+            hyperparameters=result.get("hyperparameters"),
+        )
         pd.DataFrame(aux["history"]).to_csv(history_path, sep="\t", index=False)
         if args.write_predictions:
-            write_pair_predictions(OUT_DIR / f"{stem}_test_pair_predictions.tsv", aux["splits"]["test"], aux["predictions"]["test"])
+            write_pair_predictions(args.out_dir / f"{stem}_test_pair_predictions.tsv", aux["splits"]["test"], aux["predictions"]["test"])
         for split in ("train", "val", "test"):
             m = result[split]
             rows.append(
@@ -343,9 +367,30 @@ def main() -> None:
             flush=True,
         )
 
-    summary_path = OUT_DIR / f"pring_endpoint_additive_mlp_{args.rep}_h{args.hidden}_l{args.layers}_nobias_summary.json"
-    tsv_path = OUT_DIR / f"pring_endpoint_additive_mlp_{args.rep}_h{args.hidden}_l{args.layers}_nobias_metrics_summary.tsv"
-    summary_path.write_text(json.dumps(all_results, indent=2))
+    summary_path = args.out_dir / f"pring_endpoint_additive_mlp_{args.rep}_h{args.hidden}_l{args.layers}_nobias_summary.json"
+    tsv_path = args.out_dir / f"pring_endpoint_additive_mlp_{args.rep}_h{args.hidden}_l{args.layers}_nobias_metrics_summary.tsv"
+    dump_experiment(
+        summary_path,
+        task="pair.endpoint_additive_mlp",
+        dataset="pring_human",
+        features=args.rep,
+        split="multi",
+        model="endpoint_additive_mlp",
+        seed=args.seed,
+        payload=all_results,
+        metrics={
+            method: {
+                "auroc": res["test"]["auroc"],
+                "auprc": res["test"]["auprc"],
+            }
+            for method, res in all_results.items()
+        },
+        hyperparameters={
+            "hidden": args.hidden,
+            "layers": args.layers,
+            "methods": list(methods),
+        },
+    )
     pd.DataFrame(rows).to_csv(tsv_path, sep="\t", index=False)
     print("[done] wrote", summary_path, flush=True)
     print("[done] wrote", tsv_path, flush=True)

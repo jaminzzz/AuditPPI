@@ -32,12 +32,13 @@ Run:
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
+
+from src.experiments.results import dump_experiment
 
 # reuse the exact loaders / metrics / compartment map from the baseline audit
 from analyze_c3_localization_confound import (
@@ -160,7 +161,16 @@ def main() -> None:
         report["modes"][mode] = eval_mode(mode, y, cos, ids_a, ids_b, prot2comp)
 
     out = AUDIT_DIR / f"c3_{split}_localization_robustness.json"
-    out.write_text(json.dumps(report, indent=2))
+    dump_experiment(
+        out,
+        task="pair.localization_robustness",
+        dataset="c3",
+        features="sae_max",
+        split=split,
+        model="na",
+        seed=-1,
+        payload=report,
+    )
 
     print(f"[{split}] n={report['n']} ({report['n_pos']}+/{report['n_neg']}-)")
     print(f"{'mode':<12} {'both':>6} {'coloc+':>7} {'coloc-':>7} {'shrAUC':>7} "

@@ -35,7 +35,6 @@ Run:
 from __future__ import annotations
 
 import argparse
-import json
 import re
 from pathlib import Path
 
@@ -46,6 +45,7 @@ from scipy.stats import mannwhitneyu
 from sklearn.metrics import roc_auc_score
 
 from conf.paths import RESULTS_PAIR, PAIR_CACHES as REP_ROOT
+from src.experiments.results import dump_experiment
 
 AUDIT_DIR = RESULTS_PAIR / "negative_sampling_audit"
 SAE_MAX_DIR = REP_ROOT / "sae_max"
@@ -217,7 +217,17 @@ def main() -> None:
 
     AUDIT_DIR.mkdir(parents=True, exist_ok=True)
     out = AUDIT_DIR / f"c3_{split}_localization_confound.json"
-    out.write_text(json.dumps(report, indent=2))
+    dump_experiment(
+        out,
+        task="pair.localization_confound",
+        dataset="c3",
+        features="sae_max",
+        split=split,
+        model="na",
+        seed=-1,
+        payload=report,
+        metrics=report.get("cosine_auroc"),
+    )
 
     # persist per-protein compartments for this split (for downstream figures)
     uniq = sorted(set(ids_a) | set(ids_b))

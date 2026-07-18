@@ -34,7 +34,6 @@ Run in E1:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 
@@ -44,6 +43,7 @@ import numpy as np
 import pandas as pd
 
 from conf.paths import RESULTS_PAIR, PAIR_CACHES as SAE_REP_ROOT
+from src.experiments.results import dump_experiment
 
 REP_DIR = {"sae_max": SAE_REP_ROOT / "sae_max", "binary": SAE_REP_ROOT / "binary_thr0"}
 ALIGN_DIR = RESULTS_PAIR / "negative_sampling_audit"
@@ -191,7 +191,16 @@ def main() -> None:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     out_json = args.out_dir / f"c3_{split}_negative_sampling_bias.json"
-    out_json.write_text(json.dumps(result, indent=2))
+    dump_experiment(
+        out_json,
+        task="pair.negative_sampling_bias",
+        dataset="c3",
+        features="sae_max+binary",
+        split=split,
+        model="na",
+        seed=-1,
+        payload=result,
+    )
 
     # per-pair table for downstream plotting
     pd.DataFrame({

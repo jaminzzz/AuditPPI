@@ -27,6 +27,7 @@ from src.eval.classification import (
     safe_auprc,
     safe_auroc,
 )
+from src.experiments.results import dump_experiment
 from src.models.estimators.xgboost import fit_xgb_classifier
 from src.participation import (
     DEFAULT_PRING_CACHE,
@@ -295,7 +296,18 @@ def main() -> None:
             }
 
             stem = f"pring_human_{method.lower()}_{feature}_high_q{int(args.quantile * 100):02d}_xgboost"
-            (args.out_dir / f"{stem}.json").write_text(json.dumps(res, indent=2))
+            dump_experiment(
+                args.out_dir / f"{stem}.json",
+                task="protein.high_participation",
+                dataset=f"pring_human_{method.lower()}",
+                features=feature,
+                split="test",
+                model="xgboost_classifier",
+                seed=args.seed,
+                payload=res,
+                metrics=res["node_metrics"]["test"],
+                hyperparameters=res.get("model"),
+            )
             write_predictions(
                 args.out_dir / f"{stem}_protein_predictions.tsv",
                 split_ids={"train": pack.train_ids, "val": pack.val_ids, "test": pack.test_ids},
@@ -326,7 +338,27 @@ def main() -> None:
             )
 
     summary_path = args.out_dir / f"pring_human_high_q{int(args.quantile * 100):02d}_xgboost_summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2))
+    dump_experiment(
+        summary_path,
+        task="protein.high_participation",
+        dataset="pring_human",
+        features="multi",
+        split="multi",
+        model="xgboost_classifier",
+        seed=args.seed,
+        payload=summary,
+        metrics={
+            method: {
+                feature: {
+                    "auroc": cell.get("test_auroc"),
+                    "auprc": cell.get("test_auprc"),
+                }
+                for feature, cell in method_cells.items()
+            }
+            for method, method_cells in summary.items()
+        },
+        hyperparameters={"quantile": args.quantile},
+    )
     print(f"[done] wrote {summary_path}", flush=True)
 
 

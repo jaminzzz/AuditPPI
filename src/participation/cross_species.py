@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence
 
@@ -11,6 +10,7 @@ import numpy as np
 from conf.model import DEFAULT_SEED
 from conf.paths import PRING_ROOT
 from src.data.sequences import read_fasta
+from src.experiments.results import dump_experiment
 from src.participation.cache import (
     features_from_cache,
     load_feature_cache,
@@ -302,7 +302,28 @@ def run_pring_cross_species_generalization(
         out_dir.mkdir(parents=True, exist_ok=True)
         stem = f"pring_crossspecies_{feature_kind}_{model_kind}"
         output_path = out_dir / f"{stem}.json"
-        output_path.write_text(json.dumps(result, indent=2))
+        dump_experiment(
+            output_path,
+            task="protein.cross_species_generalization",
+            dataset="pring_cross_species",
+            features=feature_kind,
+            split="multi",
+            model=model_kind,
+            seed=seed,
+            payload=result,
+            metrics={
+                species: {
+                    "spearman_pred_degree": cell.get("node_metrics", {}).get(
+                        "spearman_pred_degree"
+                    ),
+                    "high_degree_auroc": cell.get("node_metrics", {}).get(
+                        "high_degree_auroc"
+                    ),
+                }
+                for species, cell in result.get("per_species", {}).items()
+            },
+            hyperparameters=result.get("model"),
+        )
         print(f"[done] {output_path}", flush=True)
     return result
 

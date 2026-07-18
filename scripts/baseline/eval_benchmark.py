@@ -15,12 +15,12 @@ A trained AuditPPI model plugs in later via ``src.eval.evaluate_scorer(scorer, b
 """
 
 import argparse
-import json
 from pathlib import Path
 
 from conf.paths import RESULTS_MISC
 from src.eval.participation import benchmark_diagnostic
 from src.data.pairs import list_cross_species, load_benchmark
+from src.experiments.results import dump_experiment
 
 
 def run_one(name: str, out_dir: Path) -> dict:
@@ -34,7 +34,23 @@ def run_one(name: str, out_dir: Path) -> dict:
     print(f"           t_std={diag['t_std']}  → {verdict}", flush=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{bench.name}_participation_diagnostic.json"
-    out.write_text(json.dumps({"benchmark": bench.name, "diagnostic": diag}, indent=2))
+    payload = {"benchmark": bench.name, "diagnostic": diag}
+    dump_experiment(
+        out,
+        task="baseline.participation_diagnostic",
+        dataset=bench.name,
+        features="na",
+        split="na",
+        model="na",
+        seed=-1,
+        payload=payload,
+        metrics={
+            "t_std": diag.get("t_std"),
+            "pos_rate": diag.get("pos_rate"),
+            "n_pairs": diag.get("n_pairs"),
+            "n_proteins": diag.get("n_proteins"),
+        },
+    )
     return diag
 
 
@@ -61,7 +77,17 @@ def main() -> None:
         print("\n=== participation summary (t(p) distribution per benchmark) ===", flush=True)
         for n, s in summary.items():
             print(f"  {n:28s} {s}", flush=True)
-        (args.out_dir / "participation_summary.json").write_text(json.dumps(summary, indent=2))
+        dump_experiment(
+            args.out_dir / "participation_summary.json",
+            task="baseline.participation_diagnostic",
+            dataset="multi",
+            features="na",
+            split="multi",
+            model="na",
+            seed=-1,
+            payload=summary,
+            metrics=summary,
+        )
     print(f"\n[done] diagnostics in {args.out_dir}", flush=True)
 
 

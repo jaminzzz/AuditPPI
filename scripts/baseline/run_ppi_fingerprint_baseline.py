@@ -11,12 +11,12 @@ Per-benchmark native training (c3→c3:train, cross_species→human_train, rf2pp
 """
 
 import argparse
-import json
 import os
 import subprocess
 from pathlib import Path
 
 from conf.model import DEFAULT_SEED
+from src.experiments.results import dump_experiment
 from src.ppi_fingerprint.config import MODEL_NAMES as MODELS
 from src.ppi_fingerprint.config import REPRESENTATIONS as REPS
 
@@ -75,7 +75,22 @@ def main() -> None:
     print("\n=== ppi_fingerprint baseline: AUROC / AUPRC ===", flush=True)
     for k, v in summary.items():
         print(f"  {k:42s} {v}", flush=True)
-    (OUT_DIR / "baseline_summary.json").write_text(json.dumps(summary, indent=2))
+    dump_experiment(
+        OUT_DIR / "baseline_summary.json",
+        task="baseline.ppi_fingerprint",
+        dataset="multi",
+        features="multi",
+        split="multi",
+        model="multi",
+        seed=args.seed,
+        payload=summary,
+        metrics=summary,
+        hyperparameters={
+            "top_k": args.top_k,
+            "train_subsample": args.train_subsample,
+            "species": bool(args.species),
+        },
+    )
     print(f"\n[done] {OUT_DIR/'baseline_summary.json'}", flush=True)
 
 

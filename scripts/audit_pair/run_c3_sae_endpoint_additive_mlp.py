@@ -19,7 +19,6 @@ The global feature table aggregates attribution over endpoint occurrences.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 
@@ -31,8 +30,9 @@ import torch
 from sklearn.metrics import roc_auc_score
 
 from conf.model import DEFAULT_SEED
-from conf.paths import RESULTS_PAIR, PAIR_CACHES as SAE_REP_ROOT
+from conf.paths import RESULTS_PAIR, PAIR_CACHES
 from src.eval.metrics import pair_score_metrics as metrics
+from src.experiments.results import dump_experiment
 from src.runtime import seed_all
 from src.interpretability.annotations import add_sae_annotations
 from src.interpretability.attribution import (
@@ -42,14 +42,17 @@ from src.models.architectures.endpoint_mlp import EndpointMLP
 
 OUT_DIR = RESULTS_PAIR / "c3_endpoint_additive_mlp_sae"
 
-REP_DIR = {
-    "sae_max": SAE_REP_ROOT / "sae_max",
-    "binary": SAE_REP_ROOT / "binary_thr0",
+# rep name -> subdirectory under a pair-cache root. A pair-cache root holds
+# one {split}_embeddings.pt per rep subdir; --cache-root repoints to another
+# dataset's cache built with the same layout.
+REP_SUBDIR = {
+    "sae_max": "sae_max",
+    "binary": "binary_thr0",
 }
 
 
-def load_split(rep: str, split: str) -> dict[str, torch.Tensor]:
-    path = REP_DIR[rep] / f"{split}_embeddings.pt"
+def load_split(rep: str, split: str, cache_root: Path) -> dict[str, torch.Tensor]:
+    path = cache_root / REP_SUBDIR[rep] / f"{split}_embeddings.pt"
     d = torch.load(path, map_location="cpu", weights_only=False)
     return {
         "a": d["emb_a"],
@@ -82,9 +85,9 @@ def predict(
 
 def train(args: argparse.Namespace) -> tuple[EndpointMLP, dict, dict]:
     seed_all(args.seed)
-    train_split = load_split(args.rep, "train")
-    val_split = load_split(args.rep, "val")
-    test_split = load_split(args.rep, "test")
+    train_split = load_split(args.rep, "train", args.cache_root)
+    val_split = load_split(args.rep, "val", args.cache_root)
+    test_split = load_split(args.rep, "test", args.cache_root)
 
     dim = int(train_split["a"].shape[1])
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -248,7 +251,7 @@ def write_attribution_tables(model: EndpointMLP, args: argparse.Namespace, aux: 
     df = add_sae_annotations(df, args.rep)
     df["abs_mean_signed_attr"] = df["mean_signed_attr"].abs()
     df = df.sort_values("mean_abs_attr", ascending=False)
-    attr_path = OUT_DIR / f"{stem}_{args.attr_split}_feature_attribution.tsv"
+    attr_path = args.out_dir / f"{stem}_{args.attr_split}_feature_attribution.tsv"
     df.to_csv(attr_path, sep="\t", index=False)
 
     pos = df.sort_values("mean_signed_attr", ascending=False).head(args.top_n).copy()
@@ -258,7 +261,7 @@ def write_attribution_tables(model: EndpointMLP, args: argparse.Namespace, aux: 
     neg["direction"] = "negative_endpoint_score"
     abs_top["direction"] = "largest_abs_attribution"
     pd.concat([pos, neg, abs_top], ignore_index=True).to_csv(
-        OUT_DIR / f"{stem}_{args.attr_split}_top_features_annotated.tsv",
+        args.out_dir / f"{stem}_{args.attr_split}_top_features_annotated.tsv",
         sep="\t",
         index=False,
     )
@@ -267,7 +270,20 @@ def write_attribution_tables(model: EndpointMLP, args: argparse.Namespace, aux: 
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--rep", choices=sorted(REP_DIR), default="sae_max")
+    p.add_argument("--rep", choices=sorted(REP_SUBDIR), default="sae_max")
+    p.add_argument(
+        "--cache-root",
+        type=Path,
+        default=PAIR_CACHES,
+        help="Pair-cache root holding {rep}/{split}_embeddings.pt. Repoint to "
+        "another dataset's cache built with the same layout.",
+    )
+    p.add_argument(
+        "--out-dir",
+        type=Path,
+        default=OUT_DIR,
+        help="Directory for metrics/predictions/attribution outputs.",
+    )
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--epochs", type=int, default=80)
     p.add_argument("--patience", type=int, default=12)
@@ -290,15 +306,26 @@ def main() -> None:
     p.add_argument("--attr-device", default=None, help="cuda, cpu, or omitted for auto")
     args = p.parse_args()
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
     model, result, aux = train(args)
     stem = f"c3_endpoint_additive_mlp_{args.rep}_h{args.hidden}_l{args.layers}_nobias"
 
-    result_path = OUT_DIR / f"{stem}_metrics.json"
-    history_path = OUT_DIR / f"{stem}_history.tsv"
-    result_path.write_text(json.dumps(result, indent=2))
+    result_path = args.out_dir / f"{stem}_metrics.json"
+    history_path = args.out_dir / f"{stem}_history.tsv"
+    dump_experiment(
+        result_path,
+        task="pair.endpoint_additive_mlp",
+        dataset="c3",
+        features=args.rep,
+        split="test",
+        model="endpoint_additive_mlp",
+        seed=args.seed,
+        payload=result,
+        metrics=result["test"],
+        hyperparameters=result.get("hyperparameters"),
+    )
     pd.DataFrame(aux["history"]).to_csv(history_path, sep="\t", index=False)
-    write_pair_predictions(OUT_DIR / f"{stem}_test_pair_predictions.tsv", aux["splits"]["test"], aux["predictions"]["test"])
+    write_pair_predictions(args.out_dir / f"{stem}_test_pair_predictions.tsv", aux["splits"]["test"], aux["predictions"]["test"])
     write_attribution_tables(model, args, aux, stem)
 
     print("[done] wrote", result_path, flush=True)
