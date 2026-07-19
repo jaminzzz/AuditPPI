@@ -477,37 +477,12 @@ def _residue_experiments() -> list[Experiment]:
 
 
 # ===========================================================================
-# Cross-cutting -- BASELINE (fingerprint sweep + benchmark eval)
+# Cross-cutting -- BASELINE (external published methods)
 # ===========================================================================
 def _baseline_experiments() -> list[Experiment]:
-    exps: list[Experiment] = []
-    fingerprint_dir = RESULTS_MISC / "ppi_fingerprint"
-
-    # PPI fingerprint baseline sweep. Reps mirror ppi_fingerprint REPRESENTATIONS.
-    for rep in PROTEIN_REPS:
-        exps.append(
-            Experiment(
-                name=f"baseline.ppi_fingerprint.{rep}",
-                layer="baseline",
-                script="scripts/baseline/run_ppi_fingerprint_baseline.py",
-                args=("--rep", rep),
-                inputs=(ESMC_DEFAULT_SEQ_CACHE, CROSS_SPECIES_SEQ_CACHE, ROSETTA_SEQ_CACHE),
-                products=(fingerprint_dir,),
-            )
-        )
-
-    # Benchmark evaluation (embedding-norm sanity eval) over all benchmarks.
-    exps.append(
-        Experiment(
-            name="baseline.eval_benchmark",
-            layer="baseline",
-            script="scripts/baseline/eval_benchmark.py",
-            args=("--all",),
-            inputs=(ROSETTA_SEQ_CACHE, ESMC_DEFAULT_SEQ_CACHE, CROSS_SPECIES_SEQ_CACHE),
-            products=(RESULTS_MISC / "eval",),
-        )
-    )
-    return exps
+    # Feature extractors live under scripts/baseline/features/. Train/eval runners
+    # that consume those caches will be registered here when added.
+    return []
 
 
 # ===========================================================================
@@ -521,6 +496,15 @@ def _analysis_experiments() -> list[Experiment]:
             script="scripts/analysis/run_cross_species_tabpfn_topk.py",
             inputs=(CROSS_SPECIES_SEQ_CACHE,),
             products=(RESULTS_PAIR / "tabpfn" / "cross_species_tabpfn_topk",),
+        ),
+        # Model-free t(p) diagnostic: how participation-prone each pair benchmark is.
+        Experiment(
+            name="analysis.diagnose_benchmark_participation",
+            layer="analysis",
+            script="scripts/analysis/diagnose_benchmark_participation.py",
+            args=("--all",),
+            inputs=(),
+            products=(RESULTS_MISC / "eval",),
         ),
     ]
 

@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Run the participation diagnostic (and optionally a model scorer) against a PPI benchmark.
+"""Model-free participation diagnostic for PPI pair benchmarks.
 
-The diagnostic needs **no trained model** — it quantifies how participation-prone the benchmark itself
-is (DESIGN §7), the honesty meter every model number is read against.
+Quantifies how participation-prone a benchmark is via per-protein ``t(p)``
+(DESIGN §7) — the honesty meter every model AUROC is read against. Needs no
+trained model and no sequence features; only pairs + labels.
 
     PY=/data/wmzhu/anaconda3/envs/E1/bin/python
-    $PY scripts/eval_benchmark.py --benchmark rf2ppi
-    $PY scripts/eval_benchmark.py --benchmark c3:test
-    $PY scripts/eval_benchmark.py --benchmark cross_species:ecoli
-    $PY scripts/eval_benchmark.py --all          # rf2ppi + c3:test + all cross-species splits
-
-A trained AuditPPI model plugs in later via ``src.eval.evaluate_scorer(scorer, bench)`` where
-``scorer(a, b) -> float`` (wrap the model to look up sequences from ``bench.seqs``).
+    $PY scripts/analysis/diagnose_benchmark_participation.py --benchmark rf2ppi
+    $PY scripts/analysis/diagnose_benchmark_participation.py --benchmark c3:test
+    $PY scripts/analysis/diagnose_benchmark_participation.py --benchmark cross_species:ecoli
+    $PY scripts/analysis/diagnose_benchmark_participation.py --all
 """
 
 import argparse
@@ -37,7 +35,7 @@ def run_one(name: str, out_dir: Path) -> dict:
     payload = {"benchmark": bench.name, "diagnostic": diag}
     dump_experiment(
         out,
-        task="baseline.participation_diagnostic",
+        task="analysis.participation_diagnostic",
         dataset=bench.name,
         features="na",
         split="na",
@@ -79,7 +77,7 @@ def main() -> None:
             print(f"  {n:28s} {s}", flush=True)
         dump_experiment(
             args.out_dir / "participation_summary.json",
-            task="baseline.participation_diagnostic",
+            task="analysis.participation_diagnostic",
             dataset="multi",
             features="na",
             split="multi",

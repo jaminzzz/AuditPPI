@@ -140,14 +140,15 @@ concat protocol. See `scripts/features/README.md`.
 masks, collects benchmark sequences). GPU + model weights required for the
 `cache_*` scripts. You do not need to re-run these; their outputs are already in `data/`.
 
-**`baseline/`** — pooled-SAE fingerprint baseline + participation-oracle diagnostics.
-Baseline-specific feature entry points for DeepNano, PPLM, FlashPPI and MINT
-live under `scripts/baseline/features/`; see its README for the different
-per-protein versus pair-conditioned cache contracts.
+**`baseline/`** — external published methods used as controls (DeepNano, PPLM,
+FlashPPI, MINT, …). Feature entry points live under `scripts/baseline/features/`;
+see its README for the different per-protein versus pair-conditioned cache
+contracts. Train/eval runners that score those features will land here later.
 
-**`analysis/`** — executable statistical analyses over cached features and
-predictions (e.g. cross-species TabPFN top-k probes). Shared probe helpers live
-in `src/interpretability/pair_probe.py`.
+**`analysis/`** — executable statistical analyses over cached features,
+predictions, and benchmarks (e.g. cross-species TabPFN top-k probes, model-free
+participation diagnostics). Shared probe helpers live in
+`src/interpretability/pair_probe.py`.
 
 **`interpretability/`** — executable model/SAE explanation workflows such as
 TabPFN retrieval attention and active-feature overlap. Reusable algorithms live
