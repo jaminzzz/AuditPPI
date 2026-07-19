@@ -41,7 +41,7 @@ from src.experiments.results import dump_experiment
 from src.runtime import seed_all
 from src.eval.classification import binary_classification_metrics
 from src.models.estimators.xgboost import fit_xgb_classifier
-from src.participation.features import sequence_features
+from src.features.sequence_composition import sequence_features
 
 DEFAULT_CACHE = PIC_HUMAN_SAE_CACHE
 OUT_DIR = RESULTS_PROTEIN / "pic_essentiality"

@@ -1,4 +1,11 @@
-"""Sequence and cached representation helpers for participation analyses."""
+"""Sequence-composition features (length, AA / dipeptide composition) and
+pooled-cache feature naming/normalization helpers.
+
+These are the non-pLM, model-free protein features used by the participation
+workflows' ``sequence_basic`` representation, plus the small helpers that name
+and normalize the pooled-SAE feature kinds. They live here beside the ESM-C/SAE
+extractors as the model-free end of the feature package.
+"""
 
 from __future__ import annotations
 

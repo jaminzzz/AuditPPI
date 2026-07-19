@@ -1,4 +1,15 @@
-"""Reusable analysis utilities for compact SAE pair-feature probes."""
+"""Compact SAE pair-feature probes for analysis / interpretability scripts.
+
+Owns ranking I/O, selected-column ``[A*B, |A-B|]`` materialization, embedding-split
+loading, and thin probe fit wrappers. Classification metrics live in
+:mod:`src.eval.classification`
+(:func:`~src.eval.classification.probe_classification_metrics`,
+:func:`~src.eval.classification.expected_calibration_error`).
+
+Lives under :mod:`src.interpretability` (not :mod:`src.features`): these helpers
+assemble and score already-extracted pair embeddings; they do not extract or
+cache protein features.
+"""
 
 from __future__ import annotations
 
@@ -9,54 +20,49 @@ from pathlib import Path
 import numpy as np
 
 from conf.model import ESMC_SAE_DIM
+from src.eval.classification import probe_classification_metrics
+from src.features.sampling import stratified_subsample
 from src.models.estimators.tabpfn import fit_tabpfn as _fit_tabpfn
+from src.models.estimators.tabpfn import predict_proba_chunked as _predict_proba_chunked
+from src.models.estimators.xgboost import fit_xgb
 
 SAE_DIM = ESMC_SAE_DIM  # SAE codebook size; kept as a module alias for back-compat
 BLOCK_PRODUCT = "AND(a*b)"
 BLOCK_ABSDIFF = "|a-b|"
 
 
-def stratified_indices(
-    labels: np.ndarray,
+def load_pair_embedding_split(
+    path: Path,
     max_rows: int | None,
     seed: int,
-) -> np.ndarray | None:
-    """Return class-stratified row indices, or ``None`` to keep every row."""
-    if max_rows is None or max_rows >= len(labels):
-        return None
-    rng = np.random.default_rng(seed)
-    classes = np.unique(labels)
-    chosen = []
-    remaining = max_rows
-    for index, label in enumerate(classes):
-        candidates = np.flatnonzero(labels == label)
-        if index == len(classes) - 1:
-            n_take = remaining
-        else:
-            n_take = int(round(max_rows * len(candidates) / len(labels)))
-            n_take = min(n_take, len(candidates), remaining)
-        chosen.append(rng.choice(candidates, size=n_take, replace=False))
-        remaining -= n_take
-    output = np.concatenate(chosen)
-    rng.shuffle(output)
-    return output
+    *,
+    return_indices: bool = False,
+):
+    """Load endpoint tensors and labels from an AuditPPI embedding split.
 
-
-def load_pair_embedding_split(path: Path, max_rows: int | None, seed: int):
-    """Load endpoint tensors and labels from an AuditPPI embedding split."""
+    When ``return_indices`` is true, also returns the kept original row indices
+    (identity when no subsample is applied). Shared by probe scripts and
+    :func:`src.interpretability.tabpfn_retrieval.load_split_with_indices`.
+    """
     import torch
 
     payload = torch.load(path, map_location="cpu", weights_only=False)
     labels_full = payload["label"].numpy().astype(np.int64, copy=False)
-    indices = stratified_indices(labels_full, max_rows, seed)
+    indices = stratified_subsample(labels_full, max_rows, seed)
     if indices is None:
-        return payload["emb_a"].contiguous(), payload["emb_b"].contiguous(), labels_full
-    tensor_indices = torch.as_tensor(indices, dtype=torch.long)
-    return (
-        payload["emb_a"].index_select(0, tensor_indices).contiguous(),
-        payload["emb_b"].index_select(0, tensor_indices).contiguous(),
-        labels_full[indices],
-    )
+        emb_a = payload["emb_a"].contiguous()
+        emb_b = payload["emb_b"].contiguous()
+        labels = labels_full
+        kept = np.arange(len(labels_full), dtype=np.int64)
+    else:
+        tensor_indices = torch.as_tensor(indices, dtype=torch.long)
+        emb_a = payload["emb_a"].index_select(0, tensor_indices).contiguous()
+        emb_b = payload["emb_b"].index_select(0, tensor_indices).contiguous()
+        labels = labels_full[indices]
+        kept = indices.astype(np.int64, copy=False)
+    if return_indices:
+        return emb_a, emb_b, labels, kept
+    return emb_a, emb_b, labels
 
 
 def read_feature_ranking(path: Path) -> list[dict]:
@@ -150,51 +156,20 @@ def build_dense_sym_topk(
     return grouped[:, [positions[feature_id] for feature_id in flat_features]]
 
 
-def expected_calibration_error(
-    labels: np.ndarray,
-    probabilities: np.ndarray,
-    n_bins: int = 10,
-) -> float:
-    bins = np.linspace(0.0, 1.0, n_bins + 1)
-    error = 0.0
-    for lower, upper in zip(bins[:-1], bins[1:]):
-        mask = (probabilities >= lower) & (
-            probabilities < upper if upper < 1.0 else probabilities <= upper
-        )
-        if np.any(mask):
-            error += float(mask.mean()) * abs(
-                float(labels[mask].mean()) - float(probabilities[mask].mean())
-            )
-    return error if len(labels) else float("nan")
-
-
-def classification_metrics(labels: np.ndarray, probabilities: np.ndarray) -> dict:
-    from sklearn.metrics import (
-        accuracy_score,
-        average_precision_score,
-        brier_score_loss,
-        f1_score,
-        roc_auc_score,
-    )
-
-    predictions = (probabilities >= 0.5).astype(np.int64)
-    return {
-        "auroc": float(roc_auc_score(labels, probabilities)),
-        "auprc": float(average_precision_score(labels, probabilities)),
-        "brier": float(brier_score_loss(labels, probabilities)),
-        "ece": float(expected_calibration_error(labels, probabilities)),
-        "f1": float(f1_score(labels, predictions)),
-        "acc": float(accuracy_score(labels, predictions)),
-    }
-
-
 def predict_proba_chunked(model, matrix: np.ndarray, batch_size: int) -> np.ndarray:
+    """Positive-class probabilities with progress prints for long probes.
+
+    Delegates the actual ``predict_proba`` call to
+    :func:`src.models.estimators.tabpfn.predict_proba_chunked` (``batch_size=0``
+    means "no further chunking") and only owns the progress reporting the
+    analysis scripts rely on.
+    """
     if batch_size <= 0 or matrix.shape[0] <= batch_size:
-        return model.predict_proba(matrix)[:, 1]
+        return _predict_proba_chunked(model, matrix, batch_size=0)
     chunks = []
     for start in range(0, matrix.shape[0], batch_size):
         end = min(start + batch_size, matrix.shape[0])
-        chunks.append(model.predict_proba(matrix[start:end])[:, 1])
+        chunks.append(_predict_proba_chunked(model, matrix[start:end], batch_size=0))
         print(f"    predict rows {end}/{matrix.shape[0]}", flush=True)
     return np.concatenate(chunks)
 
@@ -232,26 +207,19 @@ def fit_xgb_probe(
     seed: int,
     cpu: bool,
 ):
-    import torch
-    import xgboost as xgb
-
-    use_gpu = (not cpu) and torch.cuda.is_available()
-    model = xgb.XGBClassifier(
-        n_estimators=trees,
-        max_depth=depth,
-        learning_rate=learning_rate,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        eval_metric="auc",
-        early_stopping_rounds=50,
-        tree_method="hist",
-        random_state=seed,
-        device="cuda" if use_gpu else "cpu",
+    """Fit the analysis XGB probe via the shared pair-classifier factory."""
+    return fit_xgb(
+        train_x,
+        train_y,
+        val_x,
+        val_y,
+        trees=trees,
+        depth=depth,
+        lr=learning_rate,
+        seed=seed,
+        cpu=cpu,
+        verbose=50,
     )
-    model.fit(train_x, train_y, eval_set=[(val_x, val_y)], verbose=50)
-    if use_gpu:
-        model.get_booster().set_param({"device": "cpu"})
-    return model
 
 
 def fit_logistic_probe(train_x, train_y, *, seed: int):
@@ -282,27 +250,19 @@ def evaluate_species(
     output = {
         "n": int(len(labels)),
         "pos_rate": float(labels.mean()),
-        **classification_metrics(labels, probabilities),
+        **probe_classification_metrics(labels, probabilities),
     }
     del matrix, labels, probabilities
     gc.collect()
     return output
 
 
-# Historical names retained inside the new package for concise analysis imports.
-load_split = load_pair_embedding_split
-read_ranking = read_feature_ranking
-metrics = classification_metrics
-ece_binary = expected_calibration_error
-
 __all__ = [
     "BLOCK_ABSDIFF",
     "BLOCK_PRODUCT",
     "SAE_DIM",
     "build_dense_sym_topk",
-    "classification_metrics",
     "evaluate_species",
-    "expected_calibration_error",
     "fit_logistic_probe",
     "fit_tabpfn_probe",
     "fit_xgb_probe",
@@ -310,5 +270,4 @@ __all__ = [
     "predict_proba_chunked",
     "read_feature_ranking",
     "select_top_features",
-    "stratified_indices",
 ]

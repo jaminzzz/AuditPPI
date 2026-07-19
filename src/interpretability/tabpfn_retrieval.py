@@ -8,29 +8,18 @@ from pathlib import Path
 
 import numpy as np
 
-from src.features.cross_species_probe import stratified_indices
+from src.interpretability.pair_probe import load_pair_embedding_split
 
 
 def load_split_with_indices(path: Path, max_rows: int | None, seed: int):
-    import torch
+    """Load an embedding split and return kept original row indices.
 
-    payload = torch.load(path, map_location="cpu", weights_only=False)
-    labels_full = payload["label"].numpy().astype(np.int64, copy=False)
-    indices = stratified_indices(labels_full, max_rows, seed)
-    if indices is None:
-        return (
-            payload["emb_a"].contiguous(),
-            payload["emb_b"].contiguous(),
-            labels_full,
-            np.arange(len(labels_full), dtype=np.int64),
-        )
-    tensor_indices = torch.as_tensor(indices, dtype=torch.long)
-    return (
-        payload["emb_a"].index_select(0, tensor_indices).contiguous(),
-        payload["emb_b"].index_select(0, tensor_indices).contiguous(),
-        labels_full[indices],
-        indices.astype(np.int64, copy=False),
-    )
+    Thin wrapper over
+    :func:`src.interpretability.pair_probe.load_pair_embedding_split` with
+    ``return_indices=True`` so retrieval audits can map subsampled rows back to
+    the source CSV.
+    """
+    return load_pair_embedding_split(path, max_rows, seed, return_indices=True)
 
 
 def read_split_csv(c3_dir: Path, split: str):
@@ -167,9 +156,6 @@ def choose_queries(
     order = candidates[np.argsort(probabilities[candidates])[::-1]]
     return order[:num_queries].astype(np.int64, copy=False)
 
-
-# Concise historical name used in report code.
-short_seq = short_sequence
 
 __all__ = [
     "choose_queries",

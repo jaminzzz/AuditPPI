@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
+import numpy as np
 import torch
 
 from src.data.sequences import normalize_sequence
@@ -40,6 +41,19 @@ def pair_features(a: torch.Tensor, b: torch.Tensor, mode: str) -> torch.Tensor:
     return torch.cat([a, b], dim=-1)
 
 
+def sym_features(A, B, cols: Optional[np.ndarray] = None) -> np.ndarray:
+    """``sym = [A⊙B, |A−B|]`` as float32 numpy (n × 2·rep_dim); optional column subset.
+
+    Numpy adapter over the canonical torch :func:`pair_features` (``mode="sym"``)
+    so the ``[A*B, abs(A-B)]`` definition stays in exactly one place. A/B arrive as
+    float32 torch tensors, so this is bit-for-bit ``concatenate([(A*B), (A-B).abs()])``;
+    the numpy cast + column select is the fingerprint-baseline specific bit (TabPFN's
+    feature cap needs a fixed column subset).
+    """
+    x = pair_features(A, B, "sym").numpy().astype(np.float32, copy=False)
+    return x[:, cols] if cols is not None else x
+
+
 def concat_training_examples(
     a: torch.Tensor, b: torch.Tensor, labels: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -59,7 +73,13 @@ def concat_evaluation_examples(a: torch.Tensor, b: torch.Tensor) -> tuple[torch.
     return pair_features(a, b, "concat"), pair_features(b, a, "concat")
 
 
-def load_feature_cache(path: Path) -> dict[str, Any]:
+def load_protein_feature_cache(path: Path) -> dict[str, Any]:
+    """Load an ``auditppi_protein_features_v1`` protein feature cache.
+
+    Distinct from :func:`src.features.pooled_assembly.load_pooled_payload` (pooled
+    fingerprint caches with optional id maps) and
+    :func:`src.features.protein_cache.load_pooled_cache` (filtered pooled keys).
+    """
     payload = torch.load(path, map_location="cpu", weights_only=False)
     if payload.get("format") != "auditppi_protein_features_v1":
         raise ValueError(f"{path} is not an auditppi_protein_features_v1 cache")

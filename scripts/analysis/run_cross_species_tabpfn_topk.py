@@ -16,9 +16,9 @@ from conf.model import DEFAULT_SEED
 from conf.paths import ROOT
 from src.experiments.results import dump_experiment
 from src.runtime import setup_device
-from src.features.cross_species_probe import (
+from src.eval.classification import probe_classification_metrics
+from src.interpretability.pair_probe import (
     build_dense_sym_topk,
-    classification_metrics,
     evaluate_species,
     fit_logistic_probe,
     fit_tabpfn_probe,
@@ -128,7 +128,7 @@ def main() -> None:
             val_probabilities = predict_proba_chunked(
                 model, val_x, args.predict_batch_size
             )
-            val_metrics = classification_metrics(val_y, val_probabilities)
+            val_metrics = probe_classification_metrics(val_y, val_probabilities)
             species_metrics = {}
             for species in args.test_species:
                 print(f"[test] model={model_name} k={top_k} species={species}", flush=True)

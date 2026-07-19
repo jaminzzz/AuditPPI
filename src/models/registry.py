@@ -15,7 +15,9 @@ _ESTIMATOR_PATHS = {
     "xgboost": "src.models.estimators.xgboost:fit_xgb",
     "xgboost_classifier": "src.models.estimators.xgboost:fit_xgb_classifier",
     "xgboost_regressor": "src.models.estimators.xgboost:fit_xgb_regressor",
+    "xgboost_logdegree": "src.models.estimators.xgboost:fit_xgb_logdegree",
     "tabpfn": "src.models.estimators.tabpfn:fit_tabpfn",
+    "tabpfn_regressor": "src.models.estimators.tabpfn:fit_tabpfn_regressor",
     "endpoint_ebm": "src.models.estimators.ebm:make_endpoint_ebm",
 }
 

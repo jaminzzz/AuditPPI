@@ -6,16 +6,18 @@ complete downstream protocol.
 ```text
 ppi_fingerprint/
 ├── config.py     Supported representations, cache mapping, native train sets
-├── features.py   Pooled-cache loading and protein-pair feature assembly
 └── baseline.py   Train/validation/evaluation orchestration
 ```
 
-The package owns method-specific decisions such as:
+The package owns the method-specific *protocol*:
 
 - `binary`, `sae_max`, and `esmc_mean` representations;
 - native training data for C3, cross-species, and RF2-PPI evaluation;
-- symmetric pair features `[A*B, abs(A-B)]`;
-- XGBoost Top-K selection for the TabPFN path.
+- how those pieces are composed into the train → eval → score run.
 
-Generic benchmark loading belongs in `src.data`, reusable model definitions in
-`src.models`, and participation workflows in `src.participation`.
+The reusable building blocks it composes live in the shared layers: the
+pooled-cache / pair-row assembly and symmetric pair features (`[A*B, abs(A-B)]`)
+in `src.features` (`protein_cache`, `pairs`), XGB Top-K column selection in
+`src.features.feature_selection`, class-stratified subsampling in
+`src.features.sampling`, benchmark loading in `src.data`, models in `src.models`,
+and the participation workflows in `scripts/audit_protein/`.

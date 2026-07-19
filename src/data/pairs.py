@@ -228,8 +228,15 @@ PRING_METHODS = ("BFS", "DFS", "RANDOM_WALK")
 PRING_CROSS_SPECIES = ("yeast", "ecoli", "arath")
 
 
-def _read_pring_pair_file(path: Path) -> tuple[list[Pair], np.ndarray]:
-    """Parse a labelled PRING pair file (``id_a  id_b  label``), matching the audit."""
+def _read_pring_pair_file(
+    path: Path, *, drop_self_pairs: bool = False
+) -> tuple[list[Pair], np.ndarray]:
+    """Parse a labelled PRING pair file (``id_a  id_b  label``), matching the audit.
+
+    ``drop_self_pairs`` filters ``a == b`` rows; used by participation workflows that
+    score only cross-protein pairs. The default ``False`` preserves the historical
+    benchmark-loader contract (and the unit tests that pin it).
+    """
     pairs: list[Pair] = []
     labels: list[int] = []
     with path.open() as handle:
@@ -237,7 +244,10 @@ def _read_pring_pair_file(path: Path) -> tuple[list[Pair], np.ndarray]:
             parts = line.split()
             if len(parts) < 3:
                 continue
-            pairs.append((parts[0], parts[1]))
+            endpoint_a, endpoint_b = parts[0], parts[1]
+            if drop_self_pairs and endpoint_a == endpoint_b:
+                continue
+            pairs.append((endpoint_a, endpoint_b))
             labels.append(int(parts[2]))
     return pairs, np.asarray(labels, dtype=int)
 

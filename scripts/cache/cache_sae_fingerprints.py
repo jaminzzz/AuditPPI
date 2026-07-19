@@ -36,6 +36,7 @@ from conf.paths import (
 )
 from conf.model import ESM2_LAYER, ESM2_DIM, ESM2_SAE_DIM, MAX_RESIDUES
 from src.runtime import ensure_on_sys_path
+from src.runtime.device import pick_free_gpu
 
 # InterPLM package (interplm.sae.dictionary.ReLUSAE) lives under external/InterPLM.
 ensure_on_sys_path(INTERPLM_ROOT)
@@ -45,13 +46,7 @@ COL_A, COL_B = "query", "text"
 
 
 def pick_gpu() -> str:
-    out = subprocess.check_output(
-        ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"]
-    ).decode()
-    return sorted(
-        ((int(line.split(",")[1]), line.split(",")[0].strip()) for line in out.strip().splitlines()),
-        reverse=True,
-    )[0][1]
+    return str(pick_free_gpu())
 
 
 def parse_args() -> argparse.Namespace:

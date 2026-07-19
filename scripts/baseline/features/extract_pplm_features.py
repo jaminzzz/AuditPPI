@@ -21,19 +21,11 @@ from src.features.baseline_io import (
     truncate_pair_balanced,
 )
 from src.runtime import ensure_on_sys_path
+from src.runtime.device import pick_free_gpu
 
 
 def pick_gpu() -> str:
-    try:
-        output = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"]
-        ).decode()
-        return sorted(
-            ((int(line.split(",")[1]), line.split(",")[0].strip()) for line in output.splitlines()),
-            reverse=True,
-        )[0][1]
-    except Exception:  # noqa: BLE001
-        return "0"
+    return str(pick_free_gpu())
 
 
 def main() -> None:

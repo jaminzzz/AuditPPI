@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from conf.paths import RESULTS
-from src.experiments.run_metadata import capture
+from src.experiments.metadata import capture
 
 # Append-only run history. One JSON object per line. Lives under results/ (so it
 # is git-ignored like the products it tracks) but is durable across result-file

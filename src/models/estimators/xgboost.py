@@ -2,7 +2,35 @@
 
 from __future__ import annotations
 
+from typing import Callable, TypeVar
+
 from conf.model import DEFAULT_SEED
+
+T = TypeVar("T")
+
+
+def fit_with_cpu_fallback(
+    fit_fn: Callable[[str], T],
+    *,
+    try_cuda: bool,
+    log_tag: str,
+) -> T:
+    """Try ``fit_fn("cuda")`` when requested, falling back to CPU on any error.
+
+    ``fit_fn`` owns estimator construction / training / post-fit re-homing; this
+    helper only owns the shared try-CUDA / print / retry-CPU scaffold used by
+    every XGB factory in this module and by callers that need the same policy
+    (e.g. :func:`src.features.feature_selection.xgb_topk_columns`).
+    """
+    if try_cuda:
+        try:
+            return fit_fn("cuda")
+        except Exception as exc:  # noqa: BLE001 - XGBoost uses a generic CUDA error
+            print(
+                f"    [{log_tag}] GPU failed ({str(exc)[:60]}...); retrying on CPU",
+                flush=True,
+            )
+    return fit_fn("cpu")
 
 
 def fit_xgb(
@@ -16,12 +44,17 @@ def fit_xgb(
     lr: float = 0.05,
     seed: int = DEFAULT_SEED,
     cpu: bool = False,
+    verbose: bool | int = False,
 ):
-    """Fit the canonical pair classifier, retrying on CPU after a GPU error."""
+    """Fit the canonical pair classifier, retrying on CPU after a GPU error.
+
+    ``verbose`` is forwarded to ``XGBClassifier.fit`` (default ``False`` keeps the
+    fingerprint baseline silent; analysis probes pass ``50`` for progress).
+    """
     import torch
     import xgboost as xgb
 
-    def _fit(device):
+    def _fit(device: str):
         clf = xgb.XGBClassifier(
             n_estimators=trees,
             max_depth=depth,
@@ -34,20 +67,16 @@ def fit_xgb(
             random_state=seed,
             device=device,
         )
-        clf.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=False)
+        clf.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=verbose)
+        if device == "cuda":
+            clf.get_booster().set_param({"device": "cpu"})
         return clf
 
-    if (not cpu) and torch.cuda.is_available():
-        try:
-            clf = _fit("cuda")
-            clf.get_booster().set_param({"device": "cpu"})
-            return clf
-        except Exception as exc:  # noqa: BLE001 - XGBoost uses a generic CUDA error
-            print(
-                f"    [fit_xgb] GPU failed ({str(exc)[:60]}...); retrying on CPU",
-                flush=True,
-            )
-    return _fit("cpu")
+    return fit_with_cpu_fallback(
+        _fit,
+        try_cuda=(not cpu) and torch.cuda.is_available(),
+        log_tag="fit_xgb",
+    )
 
 
 def fit_xgb_regressor(
@@ -56,31 +85,50 @@ def fit_xgb_regressor(
     Xva,
     tva,
     *,
+    objective: str = "reg:logistic",
+    eval_metric: str = "logloss",
     sample_weight=None,
     sample_weight_eval=None,
     trees: int = 600,
     depth: int = 4,
     lr: float = 0.05,
+    early_stopping_rounds: int = 50,
     seed: int = DEFAULT_SEED,
-    cpu: bool = False,
+    device: str = "auto",
+    _log_tag: str = "fit_xgb_regressor",
 ):
-    """Fit the degree-weighted sequence-to-participation regressor."""
+    """Fit a participation/degree regressor, retrying on CPU after a GPU error.
+
+    Unified over the two participation regressors that previously lived in
+    separate places:
+
+      * ``t(p)`` sequence oracle  -> ``reg:logistic`` / ``logloss`` (degree-weighted)
+      * ``log1p(degree)``          -> ``reg:squarederror`` / ``rmse`` (see
+        :func:`fit_xgb_logdegree`)
+
+    ``device`` selects the training device: ``"auto"`` uses CUDA when available
+    else CPU (the old ``cpu=False`` behaviour); ``"cuda"`` tries CUDA then falls
+    back to CPU; ``"cpu"`` trains on CPU only. A successful CUDA fit is re-homed to
+    CPU (``set_param device=cpu``) for a portable ``predict``. Passing
+    ``sample_weight=None`` is equivalent to omitting it, so both call sites stay
+    bit-identical to their pre-merge implementations.
+    """
     import torch
     import xgboost as xgb
 
-    def _fit(device):
+    def _fit(selected_device: str):
         reg = xgb.XGBRegressor(
-            objective="reg:logistic",
-            eval_metric="logloss",
+            objective=objective,
+            eval_metric=eval_metric,
             n_estimators=trees,
             max_depth=depth,
             learning_rate=lr,
             subsample=0.8,
             colsample_bytree=0.8,
-            early_stopping_rounds=50,
+            early_stopping_rounds=early_stopping_rounds,
             tree_method="hist",
             random_state=seed,
-            device=device,
+            device=selected_device,
         )
         reg.fit(
             Xtr,
@@ -92,19 +140,49 @@ def fit_xgb_regressor(
             ),
             verbose=False,
         )
+        if selected_device == "cuda":
+            reg.get_booster().set_param({"device": "cpu"})
         return reg
 
-    if (not cpu) and torch.cuda.is_available():
-        try:
-            reg = _fit("cuda")
-            reg.get_booster().set_param({"device": "cpu"})
-            return reg
-        except Exception as exc:  # noqa: BLE001 - XGBoost uses a generic CUDA error
-            print(
-                f"    [fit_xgb_regressor] GPU failed ({str(exc)[:60]}...); retrying on CPU",
-                flush=True,
-            )
-    return _fit("cpu")
+    try_cuda = device == "cuda" or (device == "auto" and torch.cuda.is_available())
+    return fit_with_cpu_fallback(_fit, try_cuda=try_cuda, log_tag=_log_tag)
+
+
+def fit_xgb_logdegree(
+    train_x,
+    train_y,
+    val_x,
+    val_y,
+    *,
+    seed: int,
+    n_estimators: int,
+    max_depth: int,
+    learning_rate: float,
+    device: str,
+    early_stopping_rounds: int,
+):
+    """Fit the ``log1p(degree)`` regressor (squared-error / RMSE).
+
+    Thin wrapper over :func:`fit_xgb_regressor` so the PRING participation
+    workflows keep their existing call shape while the fit logic lives in exactly
+    one place. ``device`` is a bare ``"cpu"``/``"cuda"`` string here (its historic
+    contract), mapped straight onto the unified fitter.
+    """
+    return fit_xgb_regressor(
+        train_x,
+        train_y,
+        val_x,
+        val_y,
+        objective="reg:squarederror",
+        eval_metric="rmse",
+        trees=n_estimators,
+        depth=max_depth,
+        lr=learning_rate,
+        early_stopping_rounds=early_stopping_rounds,
+        seed=seed,
+        device=device,
+        _log_tag="fit_xgb_logdegree",
+    )
 
 
 def fit_xgb_classifier(
@@ -150,16 +228,17 @@ def fit_xgb_classifier(
             classifier.get_booster().set_param({"device": "cpu"})
         return classifier
 
-    if device == "cuda":
-        try:
-            return _fit("cuda")
-        except Exception as exc:  # noqa: BLE001 - backend reports generic CUDA errors
-            print(
-                f"    [fit_xgb_classifier] CUDA failed "
-                f"({str(exc)[:100]}...); retrying on CPU",
-                flush=True,
-            )
-    return _fit("cpu")
+    return fit_with_cpu_fallback(
+        _fit,
+        try_cuda=(device == "cuda"),
+        log_tag="fit_xgb_classifier",
+    )
 
 
-__all__ = ["fit_xgb", "fit_xgb_classifier", "fit_xgb_regressor"]
+__all__ = [
+    "fit_with_cpu_fallback",
+    "fit_xgb",
+    "fit_xgb_classifier",
+    "fit_xgb_logdegree",
+    "fit_xgb_regressor",
+]

@@ -12,6 +12,7 @@ from collections import defaultdict
 from typing import Dict, Hashable, Sequence, Tuple
 
 import numpy as np
+from scipy.stats import spearmanr
 from sklearn.metrics import (
     average_precision_score,
     brier_score_loss,
@@ -19,14 +20,6 @@ from sklearn.metrics import (
 )
 
 Pair = Tuple[Hashable, Hashable]
-
-
-def roc_auc(labels: Sequence[int], scores: Sequence[float]) -> float:
-    return float(roc_auc_score(np.asarray(labels), np.asarray(scores)))
-
-
-def auprc(labels: Sequence[int], scores: Sequence[float]) -> float:
-    return float(average_precision_score(np.asarray(labels), np.asarray(scores)))
 
 
 def pair_score_metrics(y: np.ndarray, p: np.ndarray) -> dict:
@@ -66,3 +59,19 @@ def participation_t(
             pos[p] += yi
     t = {p: pos[p] / cnt[p] for p in cnt}
     return t, dict(cnt)
+
+
+def safe_spearman(left, right):
+    """Finite Spearman correlation rounded for experiment summaries.
+
+    Returns ``None`` when fewer than two finite paired points remain (or the
+    statistic is non-finite), else the correlation rounded to 4 decimals. Used by
+    the sequence-participation oracle to compare predicted vs true ``t(p)``.
+    """
+    left = np.asarray(left, dtype=float)
+    right = np.asarray(right, dtype=float)
+    valid = np.isfinite(left) & np.isfinite(right)
+    if valid.sum() < 2:
+        return None
+    value = float(spearmanr(left[valid], right[valid]).statistic)
+    return None if not np.isfinite(value) else round(value, 4)

@@ -13,15 +13,11 @@ from pathlib import Path
 
 import numpy as np
 
-from src.participation import (
-    FORMAL_FEATURE_KINDS,
-    METHODS,
-    OUT_DIR,
-    PRING_ROOT,
-    full_graph_participation_labels,
-)
+from conf.paths import PRING_ROOT
+from src.data.pring_graph import METHODS, full_graph_participation_labels
 from src.eval.classification import safe_auprc, safe_auroc
 from src.experiments.results import dump_experiment
+from src.features.sequence_composition import FORMAL_FEATURE_KINDS
 
 PAIR_SETS = ("human_test", "all_test", "human_val", "human_train")
 SCORE_MODES = ("min", "product", "mean")

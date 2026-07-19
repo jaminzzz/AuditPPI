@@ -41,12 +41,10 @@ AuditPPI/
 │   └── misc/              Baseline fingerprint, cross-layer figure data, spare caches.
 ├── external/              Symlinks to shared read-only data lakes (see below).
 ├── src/
-│   ├── data/              Benchmark loaders, sequence I/O, and sparse SAE cache codec.
+│   ├── data/              Benchmark loaders, PRING graph labels, sequence I/O, and sparse SAE cache codec.
 │   ├── eval/              Scoring metrics + participation-oracle diagnostics.
 │   ├── features/          Unified ESM-C/ESM-2 protein features + pair assembly.
-│   ├── analysis/          Reusable statistical analyses over cached results.
-│   ├── participation/     Protein participation labels, predictors, and protocols.
-│   ├── interpretability/  SAE/model attribution, retrieval, and feature explanations.
+│   ├── interpretability/  SAE/model attribution, pair probes, TabPFN retrieval, feature explanations.
 │   ├── models/            Reusable architectures + external estimator integrations.
 │   ├── runtime/           Device selection, seeding, and vendored-import setup.
 │   ├── experiments/       Result envelope, experiment registry, run provenance.
@@ -54,7 +52,7 @@ AuditPPI/
 ├── scripts/               Pipeline, grouped by audit stage (see below).
 │   └── run_experiments.py Matrix runner over src/experiments/registry.py.
 ├── tests/                 CPU unit tests for data, features, models, and analyses.
-└── manuscripts/figures/   Final figures (SVG/PDF/PNG) written by scripts/figures/.
+└── manuscripts/           Draft, figures/ (SVG/PDF/PNG), and scripts/ that render them.
 ```
 
 ### Path configuration
@@ -148,14 +146,13 @@ live under `scripts/baseline/features/`; see its README for the different
 per-protein versus pair-conditioned cache contracts.
 
 **`analysis/`** — executable statistical analyses over cached features and
-predictions. Reusable implementations live in `src/analysis/`.
-
-**`audit_protein/` / `src/participation/`** — executable and reusable
-sequence-to-participation, hubness, and PRING cross-species workflows.
+predictions (e.g. cross-species TabPFN top-k probes). Shared probe helpers live
+in `src/interpretability/pair_probe.py`.
 
 **`interpretability/`** — executable model/SAE explanation workflows such as
 TabPFN retrieval attention and active-feature overlap. Reusable algorithms live
-in `src/interpretability/`.
+in `src/interpretability/` (including `pair_probe`, `tabpfn_retrieval`,
+attribution, and EBM effects).
 
 **`audit_protein/`** (Layer 1) — sequence→participation oracles and
 high-participation classifiers on PRING / C3 / PIC.

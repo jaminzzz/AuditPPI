@@ -42,13 +42,6 @@ def make_endpoint_ebm(
     )
 
 
-def fit_endpoint_ebm(x, y, **kwargs):
-    """Construct and fit a no-interaction endpoint EBM."""
-    model = make_endpoint_ebm(**kwargs)
-    model.fit(x, y)
-    return model
-
-
 def endpoint_alpha(ebm, x: np.ndarray) -> np.ndarray:
     """Return the endpoint contribution after removing the EBM intercept."""
     intercept = float(np.ravel(ebm.intercept_)[0])
@@ -69,6 +62,5 @@ def endpoint_pair_predictions(
 __all__ = [
     "endpoint_alpha",
     "endpoint_pair_predictions",
-    "fit_endpoint_ebm",
     "make_endpoint_ebm",
 ]

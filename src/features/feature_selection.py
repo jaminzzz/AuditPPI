@@ -1,4 +1,10 @@
-"""Feature selection and importance tables for participation predictors."""
+"""Feature (column) selection and importance tables.
+
+XGBoost-gain feature selection (top-k) and the importance-table rows/TSV writer
+used by the PRING participation workflows, plus the classifier-gain top-k column
+picker (:func:`xgb_topk_columns`) the fingerprint baseline uses to cap TabPFN's
+feature count. Uses the shared regressors from :mod:`src.models.estimators`.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +13,8 @@ from typing import Dict, Optional, Sequence
 
 import numpy as np
 
-from src.participation.models import fit_xgb_logdegree
+from conf.model import DEFAULT_SEED
+from src.models.estimators.xgboost import fit_xgb_logdegree
 
 
 def extract_xgb_importance(
@@ -130,9 +137,45 @@ def write_feature_importance(path: Path, rows: Sequence[dict]) -> None:
             handle.write("\t".join(str(row[column]) for column in columns) + "\n")
 
 
+def xgb_topk_columns(X: np.ndarray, y: np.ndarray, k: int, *, seed: int = DEFAULT_SEED) -> np.ndarray:
+    """Top-k columns by a quick XGBoost-classifier gain fit (TabPFN feature cap).
+
+    Uses the shared CUDA→CPU fallback scaffold from
+    :mod:`src.models.estimators.xgboost`. No held-out val set: the full matrix is
+    both train and eval (selection only; not a reported model).
+    """
+    from src.models.estimators.xgboost import fit_with_cpu_fallback
+    import torch
+    import xgboost as xgb
+
+    def _fit(device: str):
+        clf = xgb.XGBClassifier(
+            n_estimators=200,
+            max_depth=4,
+            learning_rate=0.1,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            tree_method="hist",
+            random_state=seed,
+            device=device,
+        )
+        clf.fit(X, y, verbose=False)
+        return clf
+
+    clf = fit_with_cpu_fallback(
+        _fit,
+        try_cuda=torch.cuda.is_available(),
+        log_tag="xgb_topk_columns",
+    )
+    imp = clf.feature_importances_
+    k = min(k, X.shape[1])
+    return np.argsort(imp)[::-1][:k].copy()
+
+
 __all__ = [
     "build_importance_rows",
     "extract_xgb_importance",
     "select_topk_features",
     "write_feature_importance",
+    "xgb_topk_columns",
 ]

@@ -19,19 +19,10 @@ from conf.model import DEFAULT_SEED
 from src.experiments.results import dump_experiment
 from src.ppi_fingerprint.config import MODEL_NAMES as MODELS
 from src.ppi_fingerprint.config import REPRESENTATIONS as REPS
+from src.runtime.device import pick_free_gpu
 
 HEADLINE_EVALS = ("c3:test", "cross_species:human_test", "rf2ppi")
 SPECIES_EVALS = tuple(f"cross_species:{s}" for s in ("ecoli", "fly", "mouse", "worm", "yeast"))
-
-
-def pick_free_gpu() -> str:
-    try:
-        out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"]).decode()
-        return sorted(((int(l.split(",")[1]), l.split(",")[0].strip())
-                       for l in out.strip().splitlines()), reverse=True)[0][1]
-    except Exception:  # noqa: BLE001
-        return "0"
 
 
 def main() -> None:
@@ -47,7 +38,7 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     args = p.parse_args()
 
-    dev = str(args.device_id) if args.device_id is not None else pick_free_gpu()
+    dev = str(args.device_id) if args.device_id is not None else str(pick_free_gpu())
     os.environ["CUDA_VISIBLE_DEVICES"] = dev
     print(f"[device] CUDA_VISIBLE_DEVICES={dev}", flush=True)
 

@@ -21,7 +21,7 @@ plus PRING-specific: protein_ids, uniprotid2idx, unprotid2idx (typo alias).
 
 Reads ``{species}/{species}_simple.fasta`` from PRING_ROOT and writes
 ``pring_{species}_esmc_sae_cache.pt`` under PROTEIN_SAE_CACHES (the path
-``src.participation.species_cache_path`` expects). Prefills from existing
+``src.features.pooled_assembly.species_cache_path`` expects). Prefills from existing
 pooled caches (RF2PPI + the human PRING cache) by UniProt id or exact sequence
 to skip GPU work for any shared proteins.
 """
@@ -47,6 +47,7 @@ from conf.model import (
     MAX_RESIDUES, ESMC_DIM, ESMC_SAE_DIM, ESMC_SAE_K,
 )
 from src.data.sequences import read_fasta
+from src.runtime.device import pick_free_gpu
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
@@ -70,13 +71,7 @@ def human_cache() -> Path:
 
 
 def pick_gpu() -> str:
-    out = subprocess.check_output(
-        ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"]
-    ).decode()
-    return sorted(
-        ((int(line.split(",")[1]), line.split(",")[0].strip()) for line in out.strip().splitlines()),
-        reverse=True,
-    )[0][1]
+    return str(pick_free_gpu())
 
 
 def parse_args() -> argparse.Namespace:

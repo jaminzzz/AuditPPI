@@ -26,16 +26,15 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-from conf.paths import RESULTS_PROTEIN
+from conf.paths import RESULTS_PROTEIN, POOLED_SEQ_CACHES as CACHE
 from conf.audit import PARTICIPATION_QUANTILE
-from conf.model import DEFAULT_SEED
+from conf.model import DEFAULT_SEED, REPRESENTATIONS
 from src.eval.metrics import participation_t
 from src.eval.classification import binary_classification_metrics
 from src.experiments.results import dump_experiment
 from src.models.estimators.xgboost import fit_xgb_classifier
 from src.data import pairs as D
-from src.ppi_fingerprint import features as FE
-from src.participation.predictor import CACHE, assemble_protein_features
+from src.features.protein_cache import load_pooled_cache, protein_feature_rows
 
 
 OUT_DIR = RESULTS_PROTEIN / "c3_high_participation"
@@ -57,13 +56,13 @@ def node_metrics(ids: Sequence[str], y: np.ndarray, p: np.ndarray, t: Mapping[st
 
 
 def split_tables(rep: str):
-    cache = FE.load_pooled_cache(CACHE["c3"])
+    cache = load_pooled_cache(CACHE["c3"])
     out = {}
     for split in ("train", "val", "test"):
         bench = D.load_benchmark(f"c3:{split}", attach_seqs=True)
         t, degree = participation_t(bench.pairs, bench.labels)
         ids = sorted(t)
-        X, kept = assemble_protein_features(ids, bench.seqs, cache, rep)
+        X, kept = protein_feature_rows(ids, bench.seqs, cache, rep)
         if X is None:
             raise RuntimeError(f"no cached proteins for c3:{split} rep={rep}")
         out[split] = {
@@ -90,7 +89,7 @@ def write_predictions(path: Path, *, rows: Mapping[str, dict], pred: Mapping[str
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--rep", choices=FE.REPS, default="sae_max")
+    ap.add_argument("--rep", choices=REPRESENTATIONS, default="sae_max")
     ap.add_argument("--quantile", type=float, default=PARTICIPATION_QUANTILE)
     ap.add_argument("--threshold-t", type=float, default=None)
     ap.add_argument("--out-dir", type=Path, default=OUT_DIR)

@@ -1,4 +1,17 @@
-"""Feature-cache access and split assembly for participation workflows."""
+"""Pooled feature-cache assembly and split preparation for participation.
+
+Id-first (UniProt-ID indexed) resolution into a pooled per-protein cache, the
+degree-stratified inner split, and the train/val/test :class:`FeaturePack` the
+PRING participation workflows train on. Complements
+:mod:`src.features.protein_cache` (the sequence-keyed pair/protein row
+primitives): both share the representation -> matrix switch via
+:func:`~src.features.protein_cache.representation_matrix`.
+:func:`load_pooled_payload` loads the *whole* payload (it needs the
+``uniprotid2idx`` maps and uses mmap), so it stays distinct from
+``protein_cache.load_pooled_cache`` (which filters to the four pooled tensor
+keys) and from :func:`src.features.pairs.load_protein_feature_cache` (the formal
+``auditppi_protein_features_v1`` writer format).
+"""
 
 from __future__ import annotations
 
@@ -9,19 +22,20 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from src.participation.config import (
-    DEFAULT_PRING_CACHE,
-    FALLBACK_CACHE_CANDIDATES,
-    PRING_CACHE_DIR,
-    TRAIN_SPECIES,
+from conf.paths import (
+    PRING_HUMAN_SAE_CACHE as DEFAULT_PRING_CACHE,
+    PRING_FALLBACK_CACHES as FALLBACK_CACHE_CANDIDATES,
+    PROTEIN_SAE_CACHES as PRING_CACHE_DIR,
+    PRING_TRAIN_SPECIES as TRAIN_SPECIES,
 )
-from src.participation.features import (
+from src.data.pring_graph import ParticipationLabels
+from src.features.protein_cache import representation_matrix
+from src.features.sequence_composition import (
     cache_feature_names,
     normalize_feature_kind,
     sequence_feature_names,
     sequence_matrix,
 )
-from src.participation.labels import ParticipationLabels
 
 
 @dataclass
@@ -74,8 +88,14 @@ def stratified_degree_split(
     return ids_array[train_mask].tolist(), ids_array[validation_indices].tolist()
 
 
-def load_feature_cache(path: Path) -> dict:
-    """Load a pooled feature cache on CPU, using mmap when torch supports it."""
+def load_pooled_payload(path: Path) -> dict:
+    """Load a full pooled fingerprint cache on CPU (mmap when torch supports it).
+
+    Returns the entire payload so callers can use id maps (``uniprotid2idx``,
+    …) in addition to the pooled tensors. Prefer
+    :func:`src.features.protein_cache.load_pooled_cache` when only the four
+    pooled keys are needed.
+    """
     import torch
 
     kwargs = {"map_location": "cpu", "weights_only": False}
@@ -144,7 +164,14 @@ def cached_feature_matrix(
     cache: Mapping,
     feature_kind: str,
 ) -> np.ndarray:
-    """Assemble one pooled feature matrix for the requested proteins."""
+    """Assemble one pooled feature matrix for the requested proteins.
+
+    Row resolution is id-first (``uniprotid2idx`` etc.) then sequence-keyed; the
+    representation -> matrix switch is shared with the pair/protein primitives via
+    :func:`src.features.protein_cache.representation_matrix` (thresholding
+    commutes with the row ``index_select``, so this stays bit-identical to the
+    old per-kind switch).
+    """
     import torch
 
     id_to_index = cache_id_map(cache)
@@ -158,19 +185,9 @@ def cached_feature_matrix(
             raise KeyError(f"protein {protein_id!r} is not present in the feature cache")
         rows.append(row)
 
-    if feature_kind in ("sae_max", "binary"):
-        matrix = cache["esmc_sae_max"]
-    elif feature_kind == "sae_mean":
-        matrix = cache["esmc_sae_mean"]
-    elif feature_kind == "esmc_mean":
-        matrix = cache["esmc_mean"]
-    else:
-        raise ValueError(feature_kind)
-
+    matrix = representation_matrix(cache, feature_kind)
     indices = torch.as_tensor(rows, dtype=torch.long)
     output = matrix.index_select(0, indices)
-    if feature_kind == "binary":
-        output = output > 0
     return output.float().numpy().astype(np.float32, copy=False)
 
 
@@ -227,7 +244,7 @@ def prepare_features(
             f"pooled feature cache not found: {resolved_cache}. {hint}"
         )
 
-    cache = load_feature_cache(resolved_cache)
+    cache = load_pooled_payload(resolved_cache)
     train_pool, missing_train, train_sources = filter_cached_ids(
         candidate_train, seqs, cache
     )
@@ -315,7 +332,7 @@ __all__ = [
     "cached_feature_matrix",
     "features_from_cache",
     "filter_cached_ids",
-    "load_feature_cache",
+    "load_pooled_payload",
     "lookup_cache_index",
     "prepare_features",
     "species_cache_path",

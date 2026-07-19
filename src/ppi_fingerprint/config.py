@@ -3,20 +3,13 @@
 from __future__ import annotations
 
 from conf.model import REPRESENTATIONS
-from conf.paths import (
-    RESULTS_MISC,
-    CROSS_SPECIES_SEQ_CACHE,
-    ESMC_DEFAULT_SEQ_CACHE,
-    ROSETTA_SEQ_CACHE,
-)
+from conf.paths import POOLED_SEQ_CACHES as CACHE, RESULTS_MISC
 
 MODEL_NAMES = ("xgb", "tabpfn", "dualtower")
 
-CACHE = {
-    "c3": ESMC_DEFAULT_SEQ_CACHE,
-    "cross_species": CROSS_SPECIES_SEQ_CACHE,
-    "rf2ppi": ROSETTA_SEQ_CACHE,
-}
+# Benchmark -> pooled per-sequence cache. Centralized in
+# conf.paths.POOLED_SEQ_CACHES and shared with the C3 / cross-species sequence
+# participation oracle.
 
 NATIVE_TRAIN = {
     "c3": "c3:train",

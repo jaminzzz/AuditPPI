@@ -4,6 +4,22 @@ The package is intentionally independent of any particular benchmark. Dataset
 scripts only need to provide protein identifiers/sequences; the extractors own
 the ESM-C / ESM-2 / SAE implementation and the pair module owns the symmetric
 feature construction.
+
+Module map
+----------
+- ``extractors`` / ``pooling`` / ``manifest`` — write protein feature caches.
+- ``pairs`` — pair construction + ``auditppi_protein_features_v1`` cache load
+  (:func:`~src.features.pairs.load_protein_feature_cache`).
+- ``protein_cache`` — seq-keyed pooled fingerprint read
+  (:func:`~src.features.protein_cache.load_pooled_cache`).
+- ``pooled_assembly`` — id-first pooled assembly + degree splits
+  (:func:`~src.features.pooled_assembly.load_pooled_payload`).
+- ``sequence_composition`` / ``feature_selection`` / ``sampling`` — composition
+  features, column selection, row subsample.
+- ``baseline_io`` — independent baseline pair CSV + cache write.
+
+Pair-probe ranking / sym top-k / fit wrappers live in
+:mod:`src.interpretability.pair_probe` (not here).
 """
 
 from src.data.sequences import normalize_sequence

@@ -19,14 +19,17 @@ from typing import Dict, Optional
 
 import numpy as np
 
-from conf.model import DEFAULT_SEED
+from conf.model import DEFAULT_SEED, REPRESENTATIONS
 
 from src.eval import evaluate_scorer
 from src.data import pairs as D
+from src.features.feature_selection import xgb_topk_columns
+from src.features.pairs import sym_features
+from src.features.protein_cache import load_pooled_cache, pair_feature_rows
+from src.features.sampling import stratified_subsample
 from src.models.architectures.dual_tower import train_dual_tower
 from src.models.estimators.tabpfn import fit_tabpfn, predict_proba_chunked
 from src.models.estimators.xgboost import fit_xgb
-from src.ppi_fingerprint import features as FE
 from src.ppi_fingerprint.config import CACHE, MODEL_NAMES, NATIVE_TRAIN, OUT_DIR
 
 _loaded: Dict[str, Dict] = {}  # cache of loaded pooled caches (large files)
@@ -38,13 +41,13 @@ def _family(name: str) -> str:
 
 def _get_cache(family: str) -> Dict:
     if family not in _loaded:
-        _loaded[family] = FE.load_pooled_cache(CACHE[family])
+        _loaded[family] = load_pooled_cache(CACHE[family])
     return _loaded[family]
 
 
 def _assemble(name: str, rep: str):
     bench = D.load_benchmark(name, attach_seqs=True)
-    out = FE.assemble_pairs(bench, _get_cache(_family(name)), rep)
+    out = pair_feature_rows(bench, _get_cache(_family(name)), rep)
     if out is None:
         raise RuntimeError(f"no cached proteins for benchmark {name!r} rep {rep!r}")
     A, B, y, kept = out
@@ -56,19 +59,19 @@ def run_baseline(model: str, rep: str, eval_name: str, *, top_k: int = 500,
                  out_dir: Path = OUT_DIR, write: bool = True) -> Dict:
     if model not in MODEL_NAMES:
         raise ValueError(f"unknown model {model!r}; choose from {MODEL_NAMES}")
-    if rep not in FE.REPS:
-        raise ValueError(f"unknown representation {rep!r}; choose from {FE.REPS}")
+    if rep not in REPRESENTATIONS:
+        raise ValueError(f"unknown representation {rep!r}; choose from {REPRESENTATIONS}")
     train_name = NATIVE_TRAIN[_family(eval_name)]
 
     # ---- train (native) ----
     _, Atr, Btr, ytr, _ = _assemble(train_name, rep)
-    sub = FE.stratified_subsample(ytr, train_subsample, seed)
+    sub = stratified_subsample(ytr, train_subsample, seed)
     if sub is not None:
         import torch
         ti = torch.as_tensor(sub, dtype=torch.long)
         Atr, Btr, ytr = Atr.index_select(0, ti), Btr.index_select(0, ti), ytr[sub]
     # stratified train/val split for early stopping
-    val_idx = FE.stratified_subsample(ytr, max(1, int(len(ytr) * val_frac)), seed + 1)
+    val_idx = stratified_subsample(ytr, max(1, int(len(ytr) * val_frac)), seed + 1)
     mask = np.ones(len(ytr), dtype=bool)
     mask[val_idx] = False
     import torch
@@ -84,14 +87,14 @@ def run_baseline(model: str, rep: str, eval_name: str, *, top_k: int = 500,
     # ---- fit + predict ----
     cols = None
     if model == "xgb":
-        Xtr, Xva = FE.sym_features(Atr_, Btr_), FE.sym_features(Ava_, Bva_)
+        Xtr, Xva = sym_features(Atr_, Btr_), sym_features(Ava_, Bva_)
         clf = fit_xgb(Xtr, ytr_, Xva, yva_, seed=seed)
-        scores = predict_proba_chunked(clf, FE.sym_features(Ae, Be))
+        scores = predict_proba_chunked(clf, sym_features(Ae, Be))
     elif model == "tabpfn":
-        Xtr_full = FE.sym_features(Atr_, Btr_)
-        cols = FE.xgb_topk_columns(Xtr_full, ytr_, top_k, seed=seed)
+        Xtr_full = sym_features(Atr_, Btr_)
+        cols = xgb_topk_columns(Xtr_full, ytr_, top_k, seed=seed)
         clf = fit_tabpfn(Xtr_full[:, cols], ytr_, seed=seed)
-        scores = predict_proba_chunked(clf, FE.sym_features(Ae, Be, cols))
+        scores = predict_proba_chunked(clf, sym_features(Ae, Be, cols))
     else:  # dualtower
         tower = train_dual_tower(Atr_, Btr_, ytr_, Ava_, Bva_, yva_, seed=seed)
         scores = tower.predict_proba_pairs(Ae, Be)

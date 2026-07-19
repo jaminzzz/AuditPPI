@@ -33,9 +33,9 @@ from conf.paths import (
     TABPFN_RANKING,
 )
 from src.runtime import setup_device
-from src.features.cross_species_probe import (
+from src.eval.classification import probe_classification_metrics as metrics
+from src.interpretability.pair_probe import (
     build_dense_sym_topk,
-    classification_metrics as metrics,
     predict_proba_chunked,
     read_feature_ranking as read_ranking,
     select_top_features,

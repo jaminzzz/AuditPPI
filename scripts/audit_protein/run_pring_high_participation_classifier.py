@@ -21,29 +21,32 @@ import numpy as np
 
 from conf.audit import PARTICIPATION_QUANTILE
 from conf.model import DEFAULT_SEED
+from conf.paths import (
+    PRING_HUMAN_SAE_CACHE as DEFAULT_PRING_CACHE,
+    PRING_PARTICIPATION_DIR as OUT_DIR,
+    PRING_ROOT,
+)
 from src.data.sequences import read_fasta
+from src.data.pring_graph import (
+    METHODS,
+    full_graph_participation_labels,
+    load_pring_human_split,
+)
 from src.eval.classification import (
     binary_classification_metrics,
     safe_auprc,
     safe_auroc,
 )
 from src.experiments.results import dump_experiment
-from src.models.estimators.xgboost import fit_xgb_classifier
-from src.participation import (
-    DEFAULT_PRING_CACHE,
-    FORMAL_FEATURE_KINDS,
-    METHODS,
-    OUT_DIR,
-    PRING_ROOT,
-    prepare_features,
-    full_graph_participation_labels,
-    load_pring_human_split,
-)
-from src.participation.importance import (
+from src.features.feature_selection import (
     build_importance_rows,
     extract_xgb_importance,
     write_feature_importance,
 )
+from src.features.pooled_assembly import prepare_features
+from src.features.sequence_composition import FORMAL_FEATURE_KINDS
+from src.eval.participation import read_labeled_pairs
+from src.models.estimators.xgboost import fit_xgb_classifier
 
 
 PAIR_EVALS = ("none", "human_test", "all")
@@ -84,22 +87,6 @@ def write_predictions(
         for split, ids in split_ids.items():
             for pid in ids:
                 f.write(f"{pid}\t{split}\t{degree[pid]}\t{labels[pid]}\t{pred_prob[pid]:.8g}\n")
-
-
-def read_labeled_pairs(path: Path, *, drop_self_pairs: bool) -> tuple[list[tuple[str, str]], np.ndarray]:
-    pairs: list[tuple[str, str]] = []
-    labels: list[int] = []
-    with path.open() as f:
-        for line in f:
-            parts = line.split()
-            if len(parts) < 3:
-                continue
-            a, b, y = parts[0], parts[1], int(parts[2])
-            if drop_self_pairs and a == b:
-                continue
-            pairs.append((a, b))
-            labels.append(y)
-    return pairs, np.asarray(labels, dtype=np.int8)
 
 
 def pair_metrics(path: Path, *, pred_prob: Mapping[str, float], drop_self_pairs: bool) -> dict:

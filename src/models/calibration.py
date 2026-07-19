@@ -1,4 +1,9 @@
-"""Degree calibration functions for participation predictors."""
+"""Degree calibration functions for the participation regressors.
+
+Maps a model's predicted ``log1p(degree)`` back to a degree scale (``log_linear``
+/ ``scale`` / ``none``) for the PRING sequence-to-participation workflows. Lives
+with the estimators it post-processes.
+"""
 
 from __future__ import annotations
 

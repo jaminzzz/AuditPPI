@@ -96,8 +96,8 @@ SAE_BINARY_THRESHOLD = 0.0
 
 # The three pooled per-protein representations the SAE fingerprint line supports,
 # shared verbatim by the fingerprint baseline and the participation predictors
-# (previously re-declared in src/ppi_fingerprint/config.py and echoed in
-# src/participation/predictor.py):
+# (previously re-declared in src/ppi_fingerprint/config.py and echoed in the
+# sequence participation oracle):
 #   binary    -- (esmc_sae_max > SAE_BINARY_THRESHOLD), the participation channel
 #   sae_max   -- continuous pooled SAE max   [ESMC_SAE_DIM]
 #   esmc_mean -- raw ESM-C layer mean        [ESMC_DIM]

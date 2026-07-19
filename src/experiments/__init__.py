@@ -4,10 +4,10 @@ Audits emit bespoke result payloads (frozen manuscript numbers). This package
 adds a thin, common *spine* around them so heterogeneous outputs can be
 discovered and compared in batch, without reshaping the payloads:
 
-  - `results`     — :class:`ExperimentRecord` + :func:`dump_experiment`, the
-                    common spine that wraps each audit's payload + JSON dump.
-  - `run_metadata` — :func:`capture`, best-effort run metadata (code version,
-                    environment, input file metadata).
+  - `results`  — :class:`ExperimentRecord` + :func:`dump_experiment`, the
+                 common spine that wraps each audit's payload + JSON dump.
+  - `metadata` — :func:`capture`, best-effort run metadata (code version,
+                 environment, input file metadata).
 """
 
 from src.experiments.history import (
@@ -18,7 +18,7 @@ from src.experiments.history import (
     sidecar_path,
     write_sidecar,
 )
-from src.experiments.run_metadata import capture
+from src.experiments.metadata import capture
 from src.experiments.results import SCHEMA_VERSION, ExperimentRecord, dump_experiment
 
 __all__ = [

@@ -36,6 +36,7 @@ from conf.model import (
     ESMC_SAE_DEFAULT_LAYER, ESMC_SAE_AVAILABLE_LAYERS,
     ESMC_DIM, ESMC_SAE_DIM, ESMC_SAE_K,
 )
+from src.runtime.device import pick_free_gpu
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
@@ -106,16 +107,8 @@ def in_shard(seq_id: str, shard: int, num_shards: int) -> bool:
     return h % num_shards == shard
 
 
-def pick_gpu():
-    import subprocess
-
-    out = subprocess.check_output(
-        ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"]
-    ).decode()
-    return sorted(
-        ((int(line.split(",")[1]), line.split(",")[0].strip()) for line in out.strip().splitlines()),
-        reverse=True,
-    )[0][1]
+def pick_gpu() -> str:
+    return str(pick_free_gpu())
 
 
 def open_text(path: Path):

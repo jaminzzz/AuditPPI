@@ -1,4 +1,12 @@
-"""PRING graph-derived participation labels and protein splits."""
+"""PRING graph-derived participation labels and protein splits.
+
+Reads the PRING reference graphs (``{species}_graph.pkl`` / ``{species}_ppi.txt``)
+and derives per-protein degree and normalized participation ``t(p)``, plus the
+human BFS/DFS/RANDOM_WALK protein splits. This is the data-layer upstream of
+``src.data.proteins.load_pring_participation`` and the Layer-1 participation
+workflows; it derives labels from a dataset and therefore lives beside the other
+protein-level loaders here rather than in an audit package.
+"""
 
 from __future__ import annotations
 

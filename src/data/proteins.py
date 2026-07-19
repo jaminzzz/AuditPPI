@@ -8,7 +8,7 @@ row — so they get their own :class:`ProteinDataset` contract here.
 
 Loaders are thin wrappers over the logic that already produced the manuscript
 numbers (``load_pic`` mirrors ``scripts/cache/cache_pic_human_esmc_sae.py``;
-``load_pring_participation`` reuses ``src.participation.labels``), so on-disk
+``load_pring_participation`` reuses ``src.data.pring_graph``), so on-disk
 results are unaffected. Optional heavy dependencies (pandas) are imported only
 by the loader that needs them.
 """
@@ -25,6 +25,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from conf.paths import PIC_DATASET_PKL, PRING_ROOT
+from src.data.pring_graph import full_graph_participation_labels, load_pring_human_split
 
 LABEL_KINDS = ("binary", "continuous")
 
@@ -122,15 +123,14 @@ def load_pic(dataset: str = "human", *, label_col: Optional[str] = None) -> Prot
 
 
 def _load_pring_sequences(species: str, *, root: Path) -> dict[str, str]:
-    """Read ``{species}_protein_id.csv`` (uniprot_id → sequence)."""
-    import pandas as pd
+    """Read ``{species}_protein_id.csv`` (uniprot_id → sequence).
 
-    csv_path = root / species / f"{species}_protein_id.csv"
-    frame = pd.read_csv(csv_path, usecols=["uniprot_id", "sequence"])
-    return {
-        str(identifier): str(sequence)
-        for identifier, sequence in zip(frame["uniprot_id"], frame["sequence"])
-    }
+    Delegates to the shared reader in :mod:`src.data.pairs` so the CSV contract
+    lives in exactly one place.
+    """
+    from src.data.pairs import _load_pring_pair_sequences
+
+    return _load_pring_pair_sequences(species, root)
 
 
 def load_pring_participation(
@@ -144,13 +144,11 @@ def load_pring_participation(
     """Load PRING graph participation as a continuous :class:`ProteinDataset`.
 
     Labels are the normalized participation ``t`` from
-    :func:`src.participation.labels.full_graph_participation_labels` (the same
+    :func:`src.data.pring_graph.full_graph_participation_labels` (the same
     values the participation audits consume). ``split`` (``"train"``/``"test"``)
     filters to the human method split via ``load_pring_human_split`` and is only
     valid for human; cross-species graphs are test-only and take ``split=None``.
     """
-    from src.participation.labels import full_graph_participation_labels, load_pring_human_split
-
     species = species.lower()
     labels_obj = full_graph_participation_labels(
         root=root, species=species, self_loop_mode=self_loop_mode

@@ -33,19 +33,14 @@ from conf.paths import (
     C3_TRAIN_CSV, C3_VAL_CSV, C3_TEST_CSV,
 )
 from conf.model import ESMC_SAE_DEFAULT_LAYER, ESM2_LAYER, ESMC_DIM, ESM2_DIM, MAX_RESIDUES
+from src.runtime.device import pick_free_gpu
 
 CSV_SPLITS = {"train": C3_TRAIN_CSV, "val": C3_VAL_CSV, "test": C3_TEST_CSV}
 COL_A, COL_B = "query", "text"
 
 
 def pick_gpu() -> str:
-    out = subprocess.check_output(
-        ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"]
-    ).decode()
-    return sorted(
-        ((int(line.split(",")[1]), line.split(",")[0].strip()) for line in out.strip().splitlines()),
-        reverse=True,
-    )[0][1]
+    return str(pick_free_gpu())
 
 
 def parse_args() -> argparse.Namespace:

@@ -20,25 +20,45 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-from conf.model import DEFAULT_SEED
-from conf.paths import RESULTS_PROTEIN, FEATURE_TABLE
+from conf.model import DEFAULT_SEED, REPRESENTATIONS
+from conf.paths import RESULTS_PROTEIN, FEATURE_TABLE, POOLED_SEQ_CACHES as CACHE
 from src.runtime import seed_all
 from src.eval import evaluate_scorer
-from src.eval.metrics import participation_t
+from src.eval.metrics import participation_t, safe_spearman
 from src.experiments.results import dump_experiment
 from src.models.estimators.xgboost import fit_xgb_regressor
 from src.data import pairs as D
-from src.ppi_fingerprint import features as FE
-from src.participation.predictor import (
-    CACHE,
-    TEST,
-    TRAINVAL,
-    assemble_protein_features,
-    safe_spearman,
-    train_target_t,
-)
+from src.features.protein_cache import load_pooled_cache, protein_feature_rows
 
 OUT_DIR = RESULTS_PROTEIN / "c3_seq_participation_oracle"
+
+# Native-split participation targets: the same family -> benchmark-split maps the
+# sequence participation oracle (run_participation_oracle.py) uses. This runner
+# only exercises the "c3" family, but the full maps keep the target logic identical.
+TRAINVAL = {
+    "c3": ("c3:train", "c3:val"),
+    "cross_species": ("cross_species:human_train",),
+}
+TEST = {
+    "c3": "c3:test",
+    "cross_species": "cross_species:human_test",
+}
+
+
+def train_target_t(family: str):
+    """Combine native train/validation splits into per-protein ``t(p)`` targets."""
+    if family not in TRAINVAL:
+        raise ValueError(f"unknown family {family!r}; choose from {tuple(TRAINVAL)}")
+    pairs = []
+    labels = []
+    sequences: dict[str, str] = {}
+    for split_name in TRAINVAL[family]:
+        bench = D.load_benchmark(split_name, attach_seqs=True)
+        pairs.extend(bench.pairs)
+        labels.extend(int(label) for label in bench.labels)
+        sequences.update(bench.seqs)
+    target, degree = participation_t(pairs, labels)
+    return target, degree, sequences
 
 
 def feature_names(rep: str, dim: int) -> list[str]:
@@ -114,7 +134,7 @@ def write_pair_predictions(path: Path, *, bench, t_hat) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--rep", choices=FE.REPS, default="sae_max")
+    ap.add_argument("--rep", choices=REPRESENTATIONS, default="sae_max")
     ap.add_argument("--family", choices=["c3"], default="c3")
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     ap.add_argument("--holdout-frac", type=float, default=0.1)
@@ -126,11 +146,11 @@ def main() -> None:
     seed_all(args.seed)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    cache = FE.load_pooled_cache(CACHE[args.family])
+    cache = load_pooled_cache(CACHE[args.family])
 
     t_train, deg_train, train_seqs = train_target_t(args.family)
     train_ids = list(t_train.keys())
-    X, kept = assemble_protein_features(train_ids, train_seqs, cache, args.rep)
+    X, kept = protein_feature_rows(train_ids, train_seqs, cache, args.rep)
     if X is None:
         raise RuntimeError("no cached train+val proteins")
     y = np.asarray([t_train[p] for p in kept], dtype=np.float32)
@@ -152,7 +172,7 @@ def main() -> None:
 
     test_bench = D.load_benchmark(TEST[args.family], attach_seqs=True)
     test_ids = sorted({p for pair in test_bench.pairs for p in pair})
-    Xte, kept_te = assemble_protein_features(test_ids, test_bench.seqs, cache, args.rep)
+    Xte, kept_te = protein_feature_rows(test_ids, test_bench.seqs, cache, args.rep)
     if Xte is None:
         raise RuntimeError("no cached test proteins")
     pred = np.clip(reg.predict(Xte), 0.0, 1.0)

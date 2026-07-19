@@ -140,6 +140,24 @@ ESMC_DEFAULT_SEQ_CACHE = SEQ_CACHES / "esmc_default_seq_cache.pt"
 # ESM-2 (650M) + InterPLM-SAE pooled cache (legacy ESM-2 fingerprint line).
 ESM2_SEQ_CACHE = SEQ_CACHES / "esm2_650m_seq_cache.pt"
 
+# Benchmark -> pooled per-sequence cache. Which seq-cache each benchmark's pooled
+# fingerprints live in; shared by the ppi_fingerprint baseline and the C3 /
+# cross-species sequence-participation oracle. (Was ppi_fingerprint.config.CACHE.)
+POOLED_SEQ_CACHES = {
+    "c3": ESMC_DEFAULT_SEQ_CACHE,
+    "cross_species": CROSS_SPECIES_SEQ_CACHE,
+    "rf2ppi": ROSETTA_SEQ_CACHE,
+}
+
+# Ordered fallback pooled caches probed for a diagnostic hint when a PRING-
+# specific cache is absent. (Was participation.config.FALLBACK_CACHE_CANDIDATES.)
+PRING_FALLBACK_CACHES = (
+    ROSETTA_SEQ_CACHE,
+    CROSS_SPECIES_SEQ_CACHE,
+    BERNETT_SEQ_CACHE,
+    ESMC_DEFAULT_SEQ_CACHE,
+)
+
 # Stage 2: per-dataset protein-level pooled caches (UniProt-ID indexed). Moved
 # here from results/audit_protein/{pring_participation,pic_essentiality}/ so the reusable cache
 # no longer sits beside the disposable xgboost outputs it feeds.

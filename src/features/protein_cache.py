@@ -9,11 +9,10 @@ friends) is a ``torch.save`` payload with at least::
     esmc_mean     Tensor [N, ESMC_DIM]       pooled dense ESM-C mean
 
 Both the fingerprint baseline (``src.ppi_fingerprint``) and the participation
-predictors (``src.participation.predictor``) previously each re-implemented the
-cache load, the representation -> matrix switch, and the id/sequence -> row
-assembly. That logic now lives here once; both packages import it, which also
-removes the ``participation -> ppi_fingerprint`` back-dependency that existed
-only to share the three-line representation switch.
+oracle scripts previously each re-implemented the cache load, the
+representation -> matrix switch, and the id/sequence -> row assembly. That logic
+now lives here once; the id-keyed pooled assembly in
+``src.features.pooled_assembly`` reuses the representation switch too.
 
 Import-time torch-free
 ----------------------
@@ -52,14 +51,22 @@ def rep_dim(rep: str) -> int:
 
 
 def representation_matrix(cache: Dict, rep: str):
-    """The per-protein matrix for a representation (torch tensor; ``binary`` is bool)."""
+    """The per-protein matrix for a representation (torch tensor; ``binary`` is bool).
+
+    Handles the three baseline ``REPRESENTATIONS`` plus ``sae_mean`` -- the pooled
+    SAE-mean channel used by the participation feature kinds. ``sae_mean`` is
+    intentionally *not* in ``REPRESENTATIONS`` (that tuple is the fingerprint
+    baseline's rep contract); it is accepted here only as a decodable channel.
+    """
     if rep == "binary":
         return cache["esmc_sae_max"] > SAE_BINARY_THRESHOLD
     if rep == "sae_max":
         return cache["esmc_sae_max"]
+    if rep == "sae_mean":
+        return cache["esmc_sae_mean"]
     if rep == "esmc_mean":
         return cache["esmc_mean"]
-    raise ValueError(f"unknown representation {rep!r}; choose from {REPRESENTATIONS}")
+    raise ValueError(f"unknown representation {rep!r}; choose from {(*REPRESENTATIONS, 'sae_mean')}")
 
 
 def protein_feature_rows(

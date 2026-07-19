@@ -7,8 +7,7 @@ from typing import Callable, Dict, Hashable
 import numpy as np
 
 from src.data.pairs import Benchmark
-from src.eval.classification import safe_auroc
-from src.eval.metrics import auprc
+from src.eval.classification import safe_auprc, safe_auroc
 
 
 def evaluate_scorer(
@@ -26,8 +25,7 @@ def evaluate_scorer(
     scores = np.asarray([raw[i] for i in idx], dtype=float)
     model_auroc = safe_auroc(labels, scores)
     pos_rate = float(labels.mean()) if len(labels) else None
-    have_two = len(labels) and len(np.unique(labels)) >= 2
-    model_auprc = auprc(labels, scores) if have_two else None
+    model_auprc = safe_auprc(labels, scores)
     return {
         "scorer": name,
         "benchmark": bench.name,

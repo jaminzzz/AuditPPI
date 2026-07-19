@@ -92,10 +92,63 @@ def binary_classification_metrics(
     return result
 
 
+def expected_calibration_error(
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+    n_bins: int = 10,
+) -> float:
+    """Binned expected calibration error for binary probabilities."""
+    labels = np.asarray(labels)
+    probabilities = np.asarray(probabilities)
+    bins = np.linspace(0.0, 1.0, n_bins + 1)
+    error = 0.0
+    for lower, upper in zip(bins[:-1], bins[1:]):
+        mask = (probabilities >= lower) & (
+            probabilities < upper if upper < 1.0 else probabilities <= upper
+        )
+        if np.any(mask):
+            error += float(mask.mean()) * abs(
+                float(labels[mask].mean()) - float(probabilities[mask].mean())
+            )
+    return error if len(labels) else float("nan")
+
+
+def probe_classification_metrics(
+    labels: np.ndarray, probabilities: np.ndarray
+) -> dict:
+    """Pair-probe metric block (AUROC/AUPRC/Brier/ECE/F1/acc at 0.5).
+
+    Used by compact SAE pair probes. Unlike :func:`binary_classification_metrics`,
+    this assumes both classes are present (sklearn will raise otherwise) and
+    reports calibration metrics that those protein classifiers do not need.
+    """
+    from sklearn.metrics import (
+        accuracy_score,
+        average_precision_score,
+        brier_score_loss,
+        f1_score as sklearn_f1_score,
+        roc_auc_score,
+    )
+
+    labels = np.asarray(labels)
+    probabilities = np.asarray(probabilities)
+    predictions = (probabilities >= 0.5).astype(np.int64)
+    return {
+        "auroc": float(roc_auc_score(labels, probabilities)),
+        "auprc": float(average_precision_score(labels, probabilities)),
+        "brier": float(brier_score_loss(labels, probabilities)),
+        "ece": float(expected_calibration_error(labels, probabilities)),
+        "f1": float(sklearn_f1_score(labels, predictions)),
+        "acc": float(accuracy_score(labels, predictions)),
+    }
+
+
 __all__ = [
     "best_f1_threshold",
     "binary_classification_metrics",
+    "expected_calibration_error",
     "precision_at_k",
+    "probe_classification_metrics",
     "safe_auprc",
     "safe_auroc",
 ]

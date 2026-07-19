@@ -20,17 +20,17 @@ the user asked for: the full dataset matrix is *configured* even before its
 cache exists, and dropping a cache file in place auto-lights the cell on the
 next run -- no code change.
 
-Because the consumer layers (figures / analysis / interpretability) list their
+Because the consumer layers (analysis / interpretability) list their
 *upstream products* as inputs, the same probe doubles as dependency
-resolution: a figure whose upstream JSON has not been produced yet is simply
+resolution: a consumer whose upstream JSON has not been produced yet is simply
 not ready. Combined with the layer ordering (see ``LAYER_ORDER``) this gives a
 topological execution order without a hand-maintained DAG.
 
 Out-dir policy
 --------------
 The registry does **not** redirect ``--out-dir``. Every script writes to its
-own established default location, because the figure/analysis consumers read
-their upstream products from hard-coded paths (e.g.
+own established default location, because the analysis/interpretability
+consumers read their upstream products from hard-coded paths (e.g.
 ``RESULTS_PROTEIN/pring_participation/high_p90_xgboost``). Per-run traceability
 is provided by the sidecar + history written *next to* each product by the
 runner (see ``src.experiments.history``), which does not depend on the directory
@@ -39,7 +39,7 @@ zero traceability gain.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from conf.paths import (
@@ -71,12 +71,16 @@ from conf.paths import (
 # Producers before consumers. ``prep`` (the GPU forward-pass cache builders)
 # feeds everything else, so it sorts first. The user's requested trunk is then
 # protein -> pair -> residue; analysis/interpretability/baseline are
-# cross-cutting and figures are pure sinks, so they sort to the end. The runner
+# cross-cutting, so they sort to the end. The runner
 # uses this as the primary sort key; readiness probing over declared inputs
 # handles the finer producer->consumer edges within and across layers. Note prep
 # cells are ``auto=False`` (see below), so ``--all`` never triggers a GPU
 # encode; they are declared for matrix completeness and to light up the audit
 # cells that consume their caches.
+#
+# Figure rendering is deliberately *not* a layer here: the plotting scripts live
+# under ``manuscripts/scripts/`` and are run by hand during manuscript prep, not
+# through the audit reproduction matrix.
 LAYER_ORDER = (
     "prep",
     "protein",
@@ -85,7 +89,6 @@ LAYER_ORDER = (
     "analysis",
     "interpretability",
     "baseline",
-    "figures",
 )
 
 
@@ -156,7 +159,7 @@ class Experiment:
 PAIR_REPS = ("sae_max", "binary")            # C3/PRING endpoint scripts REP_SUBDIR / REPS
 PRING_METHODS = ("BFS", "DFS", "RANDOM_WALK")
 PRING_SPECIES = ("yeast", "ecoli", "arath")  # cross-species generalization test graphs
-PROTEIN_REPS = ("sae_max", "binary", "esmc_mean")  # ppi_fingerprint REPRESENTATIONS / FE.REPS
+PROTEIN_REPS = ("sae_max", "binary", "esmc_mean")  # mirrors conf.model.REPRESENTATIONS
 
 # Pair-cache root -> rep subdir layout ({rep}/{split}_embeddings.pt). Only C3 is
 # on disk today (PAIR_CACHES); other pair datasets are declared by convention so
@@ -538,16 +541,6 @@ def _interpretability_experiments() -> list[Experiment]:
     ]
 
 
-# ===========================================================================
-# Cross-cutting -- FIGURES (pure sinks; read many upstream products)
-# ===========================================================================
-def _figure_experiments() -> list[Experiment]:
-    # Figure scripts under scripts/figures/ were removed and will be rewritten.
-    # Re-register cells here once the new figure entrypoints exist; until then
-    # the figures layer is intentionally empty so readiness/smoke stay honest.
-    return []
-
-
 # ---------------------------------------------------------------------------
 # Assembly
 # ---------------------------------------------------------------------------
@@ -561,7 +554,6 @@ def all_experiments() -> list[Experiment]:
     exps += _analysis_experiments()
     exps += _interpretability_experiments()
     exps += _baseline_experiments()
-    exps += _figure_experiments()
     exps.sort(key=lambda e: (e.layer_rank, e.name))
     _check_unique(exps)
     return exps

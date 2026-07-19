@@ -22,7 +22,7 @@ Contract for consumers
 -----------------------
 Import the default and pass it as the argparse ``default=`` (or use it directly
 where the literal was hard-coded and there is no flag, e.g.
-``src/participation/evaluation.py``'s degree-p90 threshold). Do NOT re-type the
+``src/eval/participation_metrics.py``'s degree-p90 threshold). Do NOT re-type the
 literal. A script that needs a different value still passes it via its flag; the
 constant is only the default.
 
@@ -39,7 +39,7 @@ from __future__ import annotations
 # Quantile of the (train-set) participation-degree distribution above which a
 # protein is labelled "high participation" / hub. Default for the PRING and C3
 # high-participation classifiers (``--quantile``) and the degree-p90 threshold
-# reported by ``src/participation/evaluation.py`` (which had no flag: it hard-
+# reported by ``src/eval/participation_metrics.py`` (which had no flag: it hard-
 # coded 0.9, now sourced from here so the two definitions cannot drift).
 PARTICIPATION_QUANTILE = 0.9
 

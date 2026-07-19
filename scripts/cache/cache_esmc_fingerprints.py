@@ -37,6 +37,7 @@ from conf.model import (
     ESMC_SAE_DEFAULT_LAYER, ESMC_SAE_AVAILABLE_LAYERS,
     MAX_RESIDUES, ESMC_DIM, ESMC_SAE_DIM, ESMC_SAE_K,
 )
+from src.runtime.device import pick_free_gpu
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
@@ -44,13 +45,7 @@ SPLIT_CSVS = {"train": C3_TRAIN_CSV, "val": C3_VAL_CSV, "test": C3_TEST_CSV}
 
 
 def pick_gpu() -> str:
-    out = subprocess.check_output(
-        ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"]
-    ).decode()
-    return sorted(
-        ((int(line.split(",")[1]), line.split(",")[0].strip()) for line in out.strip().splitlines()),
-        reverse=True,
-    )[0][1]
+    return str(pick_free_gpu())
 
 
 def layer_tagged_cache_path(path: Path, layer: int) -> Path:

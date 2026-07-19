@@ -11,8 +11,8 @@ import torch
 from src.features.pairs import (
     PAIR_MODES,
     build_pair_payload,
-    load_feature_cache,
     load_pair_indices,
+    load_protein_feature_cache,
 )
 
 
@@ -41,7 +41,7 @@ def main() -> None:
 
     if args.output.exists() and not args.overwrite:
         raise FileExistsError(f"output exists: {args.output}; pass --overwrite to replace it")
-    cache = load_feature_cache(args.cache)
+    cache = load_protein_feature_cache(args.cache)
     rows_a, rows_b, labels, kept, total = load_pair_indices(
         args.pairs,
         cache=cache,
