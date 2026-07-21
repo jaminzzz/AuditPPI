@@ -12,34 +12,44 @@ from pathlib import Path
 
 import numpy as np
 
-from conf.model import DEFAULT_SEED
-from conf.paths import ROOT
+from conf.model import DEFAULT_BACKBONE, DEFAULT_SEED, resolve_backbone_layer
+from conf.paths import (
+    CROSS_SPECIES_PAIR_INDEX_CACHES,
+    CROSS_SPECIES_SAE_CACHE,
+    RESULTS_PAIR,
+    TABPFN_RANKING,
+)
 from src.experiments.results import dump_experiment
 from src.runtime import setup_device
 from src.eval.classification import probe_classification_metrics
+from src.features.pairs import load_protein_feature_cache
+from src.features.sampling import stratified_subsample
 from src.interpretability.pair_probe import (
     build_dense_sym_topk,
-    evaluate_species,
+    evaluate_species_v1,
     fit_logistic_probe,
     fit_tabpfn_probe,
     fit_xgb_probe,
-    load_pair_embedding_split,
+    materialize_pair_split,
     predict_proba_chunked,
     read_feature_ranking,
     select_top_features,
 )
 
-DEFAULT_EMBEDDING_DIR = ROOT / "outputs/cross_species/esmc/reps/binary_thr0"
-DEFAULT_RANKING = ROOT / "outputs/cross_species/esmc/tabpfn_topk/feature_ranking_binary_sym.csv"
-DEFAULT_OUT = ROOT / "outputs/cross_species/esmc/tabpfn_topk"
+DEFAULT_OUT = RESULTS_PAIR / "tabpfn" / "cross_species_tabpfn_topk"
 DEFAULT_TESTS = ["ecoli", "fly", "mouse", "worm", "yeast"]
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--embedding-dir", type=Path, default=DEFAULT_EMBEDDING_DIR)
-    parser.add_argument("--ranking-csv", type=Path, default=DEFAULT_RANKING)
+    parser.add_argument("--ranking-csv", type=Path, default=TABPFN_RANKING)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
+    parser.add_argument("--rep", choices=["binary", "sae_max"], default="binary")
+    parser.add_argument("--backbone", default=DEFAULT_BACKBONE)
+    parser.add_argument("--layer", type=int, default=None,
+                        help="SAE layer; defaults to the backbone's default layer.")
+    parser.add_argument("--val-frac", type=float, default=0.1,
+                        help="fraction of human_train carved off as val (stratified).")
     parser.add_argument("--device-id", type=int, default=2)
     parser.add_argument("--top-k", type=int, nargs="+", default=[20, 50, 100, 200, 500])
     parser.add_argument("--top-k-mode", choices=["sae-id", "flat"], default="sae-id")
@@ -72,14 +82,41 @@ def main() -> None:
     ranking = read_feature_ranking(args.ranking_csv)
     all_results = []
 
+    layer = resolve_backbone_layer(args.backbone, args.layer)
     print(f"[ranking] {args.ranking_csv}", flush=True)
-    print(f"[load] train/val from {args.embedding_dir}", flush=True)
-    train_a, train_b, train_y = load_pair_embedding_split(
-        args.embedding_dir / "train_embeddings.pt", args.train_subsample, args.seed
+    print(
+        f"[load] cross-species human_train via pair-index cache "
+        f"({args.rep} {args.backbone}L{layer})",
+        flush=True,
     )
-    val_a, val_b, val_y = load_pair_embedding_split(
-        args.embedding_dir / "val_embeddings.pt", args.val_subsample, args.seed + 1
+    protein_cache = load_protein_feature_cache(CROSS_SPECIES_SAE_CACHE)
+    # No native cross-species val CSV exists: the human graph is the only train
+    # source, so carve a disjoint stratified val partition from human_train --
+    # matching the ppi_fingerprint baseline convention (val_frac, seed+1).
+    full_a, full_b, full_y = materialize_pair_split(
+        CROSS_SPECIES_PAIR_INDEX_CACHES["human_train"], protein_cache,
+        rep=args.rep, backbone=args.backbone, layer=layer, max_rows=None,
+        seed=args.seed,
     )
+    val_idx = stratified_subsample(full_y, max(1, int(len(full_y) * args.val_frac)), args.seed + 1)
+    val_mask = np.zeros(len(full_y), dtype=bool)
+    val_mask[val_idx] = True
+    import torch
+
+    train_rows = torch.as_tensor(np.flatnonzero(~val_mask), dtype=torch.long)
+    val_rows = torch.as_tensor(np.flatnonzero(val_mask), dtype=torch.long)
+    # Cap the train side after the val carve (stratified), keeping val disjoint.
+    if args.train_subsample is not None and args.train_subsample < len(train_rows):
+        sub = stratified_subsample(full_y[train_rows.numpy()], args.train_subsample, args.seed)
+        train_rows = train_rows.index_select(0, torch.as_tensor(sub, dtype=torch.long))
+    train_a = full_a.index_select(0, train_rows).contiguous()
+    train_b = full_b.index_select(0, train_rows).contiguous()
+    train_y = full_y[train_rows.numpy()]
+    val_a = full_a.index_select(0, val_rows).contiguous()
+    val_b = full_b.index_select(0, val_rows).contiguous()
+    val_y = full_y[val_rows.numpy()]
+    del full_a, full_b
+    gc.collect()
     print(
         f"[data] train={len(train_y)} val={len(val_y)} pos_rate={train_y.mean():.3f}",
         flush=True,
@@ -132,11 +169,14 @@ def main() -> None:
             species_metrics = {}
             for species in args.test_species:
                 print(f"[test] model={model_name} k={top_k} species={species}", flush=True)
-                species_metrics[species] = evaluate_species(
+                species_metrics[species] = evaluate_species_v1(
                     model,
-                    species,
-                    args.embedding_dir,
+                    CROSS_SPECIES_PAIR_INDEX_CACHES[species],
+                    protein_cache,
                     flat_features,
+                    rep=args.rep,
+                    backbone=args.backbone,
+                    layer=layer,
                     test_subsample=args.test_subsample,
                     seed=args.seed,
                     predict_batch_size=args.predict_batch_size,
@@ -146,7 +186,9 @@ def main() -> None:
             result = {
                 "dataset": "cross-species",
                 "arch": model_name,
-                "rep": "binary_thr0",
+                "rep": args.rep,
+                "backbone": args.backbone,
+                "layer": layer,
                 "pair_mode": "sym",
                 "top_k_mode": args.top_k_mode,
                 "top_k": top_k,
@@ -165,7 +207,7 @@ def main() -> None:
                 args.out_dir / f"{model_name}_{args.top_k_mode}_k{top_k}.json",
                 task="analysis.cross_species_tabpfn_topk",
                 dataset="cross_species",
-                features=f"binary_sym_{args.top_k_mode}_k{top_k}",
+                features=f"{args.rep}_sym_{args.top_k_mode}_k{top_k}",
                 split="multi",
                 model=model_name,
                 seed=args.seed,

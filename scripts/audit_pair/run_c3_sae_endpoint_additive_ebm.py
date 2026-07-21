@@ -25,10 +25,15 @@ import numpy as np
 import pandas as pd
 import torch
 
-from conf.model import DEFAULT_SEED
-from conf.paths import RESULTS_PAIR, PAIR_CACHES as SAE_REP_ROOT
+from conf.model import BACKBONES, DEFAULT_BACKBONE, DEFAULT_SEED, resolve_backbone_layer
+from conf.paths import RESULTS_PAIR, C3_PAIR_INDEX_CACHES, C3_SAE_CACHE
 from src.eval.metrics import pair_score_metrics as metrics
 from src.experiments.results import dump_experiment
+from src.features.pairs import (
+    load_pair_index_cache,
+    load_protein_feature_cache,
+    materialize_pair_endpoints,
+)
 from src.runtime import seed_all
 from src.interpretability.annotations import add_sae_annotations
 from src.interpretability.ebm_effects import (
@@ -42,21 +47,27 @@ from src.models.estimators.ebm import (
 
 OUT_DIR = RESULTS_PAIR / "c3_endpoint_additive_ebm_sae"
 
-# rep name -> subdirectory under a pair-cache root. A pair-cache root holds
-# one {split}_embeddings.pt per rep subdir; --cache-root repoints to another
-# dataset's cache built with the same layout.
-REP_SUBDIR = {
-    "sae_max": "sae_max",
-    "binary": "binary_thr0",
-}
+# rep choices exposed on the CLI; both resolve to a v1 protein-cache channel via
+# materialize_pair_endpoints (sae_max -> sae_max, binary -> sae_binary).
+REP_CHOICES = ("sae_max", "binary")
 
 
-def load_split(rep: str, split: str, cache_root: Path) -> dict[str, np.ndarray]:
-    d = torch.load(cache_root / REP_SUBDIR[rep] / f"{split}_embeddings.pt", map_location="cpu", weights_only=False)
+def load_split(
+    rep: str,
+    split: str,
+    protein_cache: dict,
+    *,
+    backbone: str,
+    layer: int | None,
+) -> dict[str, np.ndarray]:
+    index_cache = load_pair_index_cache(C3_PAIR_INDEX_CACHES[split])
+    emb_a, emb_b, labels = materialize_pair_endpoints(
+        index_cache, protein_cache, rep=rep, backbone=backbone, layer=layer
+    )
     return {
-        "a": d["emb_a"].numpy(),
-        "b": d["emb_b"].numpy(),
-        "y": d["label"].float().numpy().astype(np.int8),
+        "a": emb_a.float().numpy(),
+        "b": emb_b.float().numpy(),
+        "y": labels.float().numpy().astype(np.int8),
     }
 
 
@@ -104,14 +115,10 @@ def write_pair_predictions(path: Path, split: dict[str, np.ndarray], prob: np.nd
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--rep", choices=sorted(REP_SUBDIR), default="sae_max")
-    ap.add_argument(
-        "--cache-root",
-        type=Path,
-        default=SAE_REP_ROOT,
-        help="Pair-cache root holding {rep}/{split}_embeddings.pt. Repoint to "
-        "another dataset's cache built with the same layout.",
-    )
+    ap.add_argument("--rep", choices=REP_CHOICES, default="sae_max")
+    ap.add_argument("--backbone", choices=BACKBONES, default=DEFAULT_BACKBONE)
+    ap.add_argument("--layer", type=int, default=None,
+                    help="SAE layer; defaults to the backbone's default layer.")
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     ap.add_argument("--top-k", type=int, default=300)
     ap.add_argument("--selection-chunk-size", type=int, default=512)
@@ -125,12 +132,14 @@ def main() -> None:
     ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
     args = ap.parse_args()
 
+    layer = resolve_backbone_layer(args.backbone, args.layer)
     seed_all(args.seed)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     print("[load] embeddings", flush=True)
-    train = load_split(args.rep, "train", args.cache_root)
-    val = load_split(args.rep, "val", args.cache_root)
-    test = load_split(args.rep, "test", args.cache_root)
+    protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
+    train = load_split(args.rep, "train", protein_cache, backbone=args.backbone, layer=layer)
+    val = load_split(args.rep, "val", protein_cache, backbone=args.backbone, layer=layer)
+    test = load_split(args.rep, "test", protein_cache, backbone=args.backbone, layer=layer)
     print(
         f"[data] train={train['y'].size:,} val={val['y'].size:,} test={test['y'].size:,} "
         f"dim={train['a'].shape[1]:,}",

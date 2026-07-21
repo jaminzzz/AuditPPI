@@ -65,6 +65,51 @@ def load_pair_embedding_split(
     return emb_a, emb_b, labels
 
 
+def materialize_pair_split(
+    index_cache_path: Path,
+    protein_cache: dict,
+    *,
+    rep: str,
+    backbone: str,
+    layer: int | None,
+    max_rows: int | None = None,
+    seed: int = 0,
+    return_indices: bool = False,
+):
+    """v1 analogue of :func:`load_pair_embedding_split`.
+
+    Gathers endpoint rows from a lightweight ``auditppi_pair_index_v1`` cache +
+    an ``auditppi_protein_features_v1`` protein cache (one channel picked by
+    ``rep``/``backbone``/``layer``), then applies the same class-stratified
+    subsample and returns the identical ``(emb_a, emb_b, labels[, kept])``
+    contract the old per-rep ``{split}_embeddings.pt`` dumps did.
+    """
+    import torch
+
+    from src.features.pairs import load_pair_index_cache, materialize_pair_endpoints
+
+    index_cache = load_pair_index_cache(index_cache_path)
+    emb_a, emb_b, labels_t = materialize_pair_endpoints(
+        index_cache, protein_cache, rep=rep, backbone=backbone, layer=layer
+    )
+    labels_full = labels_t.numpy().astype(np.int64, copy=False)
+    indices = stratified_subsample(labels_full, max_rows, seed)
+    if indices is None:
+        emb_a = emb_a.contiguous()
+        emb_b = emb_b.contiguous()
+        labels = labels_full
+        kept = np.arange(len(labels_full), dtype=np.int64)
+    else:
+        tensor_indices = torch.as_tensor(indices, dtype=torch.long)
+        emb_a = emb_a.index_select(0, tensor_indices).contiguous()
+        emb_b = emb_b.index_select(0, tensor_indices).contiguous()
+        labels = labels_full[indices]
+        kept = indices.astype(np.int64, copy=False)
+    if return_indices:
+        return emb_a, emb_b, labels, kept
+    return emb_a, emb_b, labels
+
+
 def read_feature_ranking(path: Path) -> list[dict]:
     rows = []
     with path.open() as handle:
@@ -257,16 +302,59 @@ def evaluate_species(
     return output
 
 
+def evaluate_species_v1(
+    model,
+    index_cache_path: Path,
+    protein_cache: dict,
+    flat_features: list[int],
+    *,
+    rep: str,
+    backbone: str,
+    layer: int | None,
+    test_subsample: int | None,
+    seed: int,
+    predict_batch_size: int,
+) -> dict:
+    """v1 analogue of :func:`evaluate_species`.
+
+    Scores a held-out species graph from its pair-index cache + the shared
+    cross-species protein cache instead of a per-species ``{species}_embeddings.pt``.
+    """
+    endpoint_a, endpoint_b, labels = materialize_pair_split(
+        index_cache_path,
+        protein_cache,
+        rep=rep,
+        backbone=backbone,
+        layer=layer,
+        max_rows=test_subsample,
+        seed=seed + 17,
+    )
+    matrix = build_dense_sym_topk(endpoint_a, endpoint_b, flat_features)
+    del endpoint_a, endpoint_b
+    gc.collect()
+    probabilities = predict_proba_chunked(model, matrix, predict_batch_size)
+    output = {
+        "n": int(len(labels)),
+        "pos_rate": float(labels.mean()),
+        **probe_classification_metrics(labels, probabilities),
+    }
+    del matrix, labels, probabilities
+    gc.collect()
+    return output
+
+
 __all__ = [
     "BLOCK_ABSDIFF",
     "BLOCK_PRODUCT",
     "SAE_DIM",
     "build_dense_sym_topk",
     "evaluate_species",
+    "evaluate_species_v1",
     "fit_logistic_probe",
     "fit_tabpfn_probe",
     "fit_xgb_probe",
     "load_pair_embedding_split",
+    "materialize_pair_split",
     "predict_proba_chunked",
     "read_feature_ranking",
     "select_top_features",

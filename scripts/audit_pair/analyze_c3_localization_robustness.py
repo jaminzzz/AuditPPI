@@ -43,10 +43,15 @@ from src.experiments.results import dump_experiment
 # reuse the exact loaders / metrics / compartment map from the baseline audit
 from analyze_c3_localization_confound import (
     AUDIT_DIR,
-    SAE_MAX_DIR,
     auroc_safe,
     build_protein_compartments,
     mwu_greater,
+)
+from conf.paths import C3_PAIR_INDEX_CACHES, C3_SAE_CACHE
+from src.features.pairs import (
+    load_pair_index_cache,
+    load_protein_feature_cache,
+    materialize_pair_endpoints,
 )
 
 # Generic compartments whose high marginal frequency creates a co-localization floor.
@@ -136,12 +141,14 @@ def main() -> None:
     split = args.split
 
     align = pd.read_parquet(AUDIT_DIR / f"c3_{split}_pair_ids.parquet")
-    d_max = torch.load(SAE_MAX_DIR / f"{split}_embeddings.pt", map_location="cpu", weights_only=False)
-    y = d_max["label"].numpy().astype(int)
+    index_cache = load_pair_index_cache(C3_PAIR_INDEX_CACHES[split])
+    protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
+    a_max, b_max, labels = materialize_pair_endpoints(index_cache, protein_cache, rep="sae_max")
+    y = labels.numpy().astype(int)
     assert len(align) == len(y), f"align {len(align)} vs reps {len(y)}"
 
-    a_max = d_max["emb_a"].float()
-    b_max = d_max["emb_b"].float()
+    a_max = a_max.float()
+    b_max = b_max.float()
     cos = torch.nn.functional.cosine_similarity(a_max, b_max, dim=1).numpy()
 
     prot2comp = build_protein_compartments()

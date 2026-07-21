@@ -204,6 +204,30 @@ PAIR_CACHES = SAE / "pair_caches" / "esmc"          # contains sae_max/, binary_
 PAIR_CACHES_SAE_MAX = PAIR_CACHES / "sae_max"
 PAIR_CACHES_BINARY = PAIR_CACHES / "binary_thr0"
 
+# Lightweight pair-index caches (auditppi_pair_index_v1): per-pair endpoint row
+# indices into a v1 protein cache + labels, no materialized features. One file
+# per (dataset, split) serves every backbone/layer/rep channel and pair mode;
+# built by scripts/prep/build_pair_index_cache.py. Replaces the old per-rep
+# {split}_embeddings.pt dumps. Row order matches the pair CSV (and thus the C3
+# pair-id alignment parquet) via kept_pair_indices.
+PAIR_INDEX_CACHES = SAE / "pair_caches"
+C3_PAIR_INDEX_CACHES = {
+    split: PAIR_INDEX_CACHES / "c3" / f"{split}_pairs.pt"
+    for split in ("train", "val", "test")
+}
+# Cross-species pair-index caches. No val CSV exists on disk: the human_train
+# graph is the only train source and val is carved from it in-memory (stratified,
+# matching the ppi_fingerprint baseline convention). So we build one cache for
+# human_train plus one per held-out species test graph; the topk consumer splits
+# human_train into train/val itself.
+CROSS_SPECIES_PAIR_SPLITS = (
+    "human_train", "ecoli", "fly", "mouse", "worm", "yeast",
+)
+CROSS_SPECIES_PAIR_INDEX_CACHES = {
+    split: PAIR_INDEX_CACHES / "cross_species" / f"{split}_pairs.pt"
+    for split in CROSS_SPECIES_PAIR_SPLITS
+}
+
 # Residue-level SAE cache (SaeCacheReader LMDB-style dir format) for the
 # interface-grounding audit. Residue SAE cache lives here (~8.8G);
 # enrichment/compat OUTPUTS live under results/audit_residue/interface_grounding/.

@@ -11,18 +11,21 @@ from pathlib import Path
 
 import numpy as np
 
-from conf.model import DEFAULT_SEED
+from conf.model import DEFAULT_BACKBONE, DEFAULT_SEED, resolve_backbone_layer
 from src.experiments.results import dump_experiment
 from conf.paths import (
-    PAIR_CACHES_BINARY,
+    C3_PAIR_INDEX_CACHES,
+    C3_SAE_CACHE,
     RAPPPID_C3_DIR,
     TABPFN_RANKING,
     TABPFN_RETRIEVAL,
 )
 from src.runtime import setup_device
+from src.features.pairs import load_protein_feature_cache
 from src.interpretability.pair_probe import (
     build_dense_sym_topk,
     fit_tabpfn_probe,
+    materialize_pair_split,
     predict_proba_chunked,
     read_feature_ranking,
     select_top_features,
@@ -33,7 +36,6 @@ from src.interpretability.tabpfn_retrieval import (
     embeddings_with_configs,
     input_overlap_stats,
     l2_normalize,
-    load_split_with_indices,
     read_split_csv,
     short_sequence,
     top_shared_features,
@@ -42,10 +44,13 @@ from src.interpretability.tabpfn_retrieval import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--embedding-dir", type=Path, default=PAIR_CACHES_BINARY)
     parser.add_argument("--ranking-csv", type=Path, default=TABPFN_RANKING)
     parser.add_argument("--out-dir", type=Path, default=TABPFN_RETRIEVAL)
     parser.add_argument("--c3-dir", type=Path, default=RAPPPID_C3_DIR)
+    parser.add_argument("--rep", choices=["binary", "sae_max"], default="binary")
+    parser.add_argument("--backbone", default=DEFAULT_BACKBONE)
+    parser.add_argument("--layer", type=int, default=None,
+                        help="SAE layer; defaults to the backbone's default layer.")
     parser.add_argument("--device-id", type=int, default=3)
     parser.add_argument("--top-k", type=int, default=200)
     parser.add_argument("--top-k-mode", choices=["sae-id", "flat"], default="sae-id")
@@ -76,12 +81,18 @@ def main() -> None:
         json.dumps(feature_metadata, indent=2)
     )
 
-    print(f"[load] train/query from {args.embedding_dir}", flush=True)
-    train_a, train_b, train_y, train_original_indices = load_split_with_indices(
-        args.embedding_dir / "train_embeddings.pt", args.train_subsample, args.seed
+    layer = resolve_backbone_layer(args.backbone, args.layer)
+    print(f"[load] train/query via pair-index caches ({args.rep} {args.backbone}L{layer})", flush=True)
+    protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
+    train_a, train_b, train_y, train_original_indices = materialize_pair_split(
+        C3_PAIR_INDEX_CACHES["train"], protein_cache, rep=args.rep,
+        backbone=args.backbone, layer=layer, max_rows=args.train_subsample,
+        seed=args.seed, return_indices=True,
     )
-    query_a, query_b, query_y, query_original_indices = load_split_with_indices(
-        args.embedding_dir / f"{args.query_split}_embeddings.pt", None, args.seed + 1
+    query_a, query_b, query_y, query_original_indices = materialize_pair_split(
+        C3_PAIR_INDEX_CACHES[args.query_split], protein_cache, rep=args.rep,
+        backbone=args.backbone, layer=layer, max_rows=None,
+        seed=args.seed + 1, return_indices=True,
     )
     train_x = build_dense_sym_topk(train_a, train_b, flat_features)
     query_x_all = build_dense_sym_topk(query_a, query_b, flat_features)
@@ -218,7 +229,10 @@ def main() -> None:
 
     config = {
         "dataset": "c3",
-        "embedding_dir": str(args.embedding_dir),
+        "protein_cache": str(C3_SAE_CACHE),
+        "rep": args.rep,
+        "backbone": args.backbone,
+        "layer": layer,
         "ranking_csv": str(args.ranking_csv),
         "top_k_mode": args.top_k_mode,
         "top_k": args.top_k,

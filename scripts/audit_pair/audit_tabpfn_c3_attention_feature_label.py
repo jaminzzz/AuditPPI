@@ -25,17 +25,20 @@ os.environ.setdefault("TABPFN_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
-from conf.model import DEFAULT_SEED
+from conf.model import DEFAULT_BACKBONE, DEFAULT_SEED, resolve_backbone_layer
 from conf.paths import (
     RESULTS_PAIR,
-    PAIR_CACHES_BINARY,
+    C3_PAIR_INDEX_CACHES,
+    C3_SAE_CACHE,
     RAPPPID_C3_DIR,
     TABPFN_RANKING,
 )
 from src.runtime import setup_device
 from src.eval.classification import probe_classification_metrics as metrics
+from src.features.pairs import load_protein_feature_cache
 from src.interpretability.pair_probe import (
     build_dense_sym_topk,
+    materialize_pair_split,
     predict_proba_chunked,
     read_feature_ranking as read_ranking,
     select_top_features,
@@ -44,15 +47,11 @@ from src.interpretability.tabpfn_retrieval import (
     decoder_attention_weights,
     embeddings_with_configs,
     input_overlap_stats,
-    load_split_with_indices,
     read_split_csv,
     top_shared_features,
 )
 from src.models.estimators.tabpfn import fit_tabpfn
 from src.experiments.results import dump_experiment
-
-
-DEFAULT_EMBEDDING_DIR = PAIR_CACHES_BINARY
 DEFAULT_RANKING = TABPFN_RANKING
 DEFAULT_C3_DIR = RAPPPID_C3_DIR
 DEFAULT_OUT = RESULTS_PAIR / "leakage_audit/tabpfn_c3_attention_feature_label"
@@ -60,10 +59,13 @@ DEFAULT_OUT = RESULTS_PAIR / "leakage_audit/tabpfn_c3_attention_feature_label"
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--embedding-dir", type=Path, default=DEFAULT_EMBEDDING_DIR)
     p.add_argument("--ranking-csv", type=Path, default=DEFAULT_RANKING)
     p.add_argument("--c3-dir", type=Path, default=DEFAULT_C3_DIR)
     p.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
+    p.add_argument("--rep", choices=["binary", "sae_max"], default="binary")
+    p.add_argument("--backbone", default=DEFAULT_BACKBONE)
+    p.add_argument("--layer", type=int, default=None,
+                   help="SAE layer; defaults to the backbone's default layer.")
     p.add_argument("--query-split", choices=["val", "test"], default="test")
     p.add_argument("--device-id", type=int, default=None)
     p.add_argument("--tabpfn-device", choices=["cuda", "cpu", "auto"], default="cuda")
@@ -296,12 +298,22 @@ def main() -> int:
         json.dumps(feature_meta, indent=2)
     )
 
-    print(f"[load] train/{args.query_split} embeddings from {args.embedding_dir}", flush=True)
-    atr, btr, ytr, train_original_idx = load_split_with_indices(
-        args.embedding_dir / "train_embeddings.pt", args.train_subsample, args.seed
+    layer = resolve_backbone_layer(args.backbone, args.layer)
+    print(
+        f"[load] train/{args.query_split} via C3 pair-index caches "
+        f"({args.rep} {args.backbone}L{layer})",
+        flush=True,
     )
-    aq, bq, yq, query_original_idx = load_split_with_indices(
-        args.embedding_dir / f"{args.query_split}_embeddings.pt", None, args.seed + 1
+    protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
+    atr, btr, ytr, train_original_idx = materialize_pair_split(
+        C3_PAIR_INDEX_CACHES["train"], protein_cache, rep=args.rep,
+        backbone=args.backbone, layer=layer, max_rows=args.train_subsample,
+        seed=args.seed, return_indices=True,
+    )
+    aq, bq, yq, query_original_idx = materialize_pair_split(
+        C3_PAIR_INDEX_CACHES[args.query_split], protein_cache, rep=args.rep,
+        backbone=args.backbone, layer=layer, max_rows=None,
+        seed=args.seed + 1, return_indices=True,
     )
 
     if args.max_queries and args.max_queries < len(yq):

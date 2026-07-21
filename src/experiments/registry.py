@@ -48,16 +48,17 @@ from conf.paths import (
     BERNETT_SEQ_CACHE,
     C1_SAE_CACHE,
     C2_SAE_CACHE,
+    C3_PAIR_INDEX_CACHES,
     C3_SAE_CACHE,
     C3_TEST_CSV,
     C3_TRAIN_CSV,
     C3_VAL_CSV,
     CROSS_SPECIES_DIR,
+    CROSS_SPECIES_PAIR_INDEX_CACHES,
     CROSS_SPECIES_SAE_CACHE,
     CROSS_SPECIES_SEQ_CACHE,
     ESMC_DEFAULT_SEQ_CACHE,
     FEATURE_TABLE,
-    PAIR_CACHES,
     PDB_PPI_SAE_CACHE,
     PIC_DATASET_PKL,
     PIC_HUMAN_SAE_CACHE,
@@ -168,19 +169,15 @@ PRING_METHODS = ("BFS", "DFS", "RANDOM_WALK")
 PRING_SPECIES = ("yeast", "ecoli", "arath")  # cross-species generalization test graphs
 PROTEIN_REPS = ("sae_max", "binary", "esmc_mean")  # mirrors conf.model.REPRESENTATIONS
 
-# Pair-cache root -> rep subdir layout ({rep}/{split}_embeddings.pt). Only C3 is
-# on disk today (PAIR_CACHES); other pair datasets are declared by convention so
-# the cell lights up when its cache root is populated with the same layout.
-PAIR_REP_SUBDIR = {"sae_max": "sae_max", "binary": "binary_thr0"}
-
-
-def _pair_cache_inputs(cache_root: Path, reps: tuple[str, ...]) -> tuple[Path, ...]:
-    """The train/val/test tensors a pair endpoint run needs for each rep."""
-    out: list[Path] = []
-    for rep in reps:
-        sub = cache_root / PAIR_REP_SUBDIR[rep]
-        out += [sub / f"{split}_embeddings.pt" for split in ("train", "val", "test")]
-    return tuple(out)
+# A pair consumer's inputs are now the lightweight pair-index caches (endpoint
+# row indices + labels) plus the one v1 protein cache they gather channels from.
+# One index cache serves every (backbone, layer, rep) channel and pair mode, so
+# the rep axis no longer multiplies the declared inputs.
+def _pair_index_inputs(
+    index_caches: dict[str, Path], protein_cache: Path
+) -> tuple[Path, ...]:
+    """The pair-index split caches + protein cache a pair endpoint run needs."""
+    return (*index_caches.values(), protein_cache)
 
 
 # ===========================================================================
@@ -397,9 +394,10 @@ def _protein_experiments() -> list[Experiment]:
 def _pair_experiments() -> list[Experiment]:
     exps: list[Experiment] = []
 
-    # C3 endpoint-additive MLP + EBM, per rep. The MLP now assembles endpoints on
-    # the fly from the C3 v1 protein cache (sequence-keyed, all backbone/layer/rep
-    # channels in one file); the EBM still reads the legacy per-rep pair cache.
+    # C3 endpoint-additive MLP + EBM, per rep. Both now assemble endpoints on the
+    # fly from the C3 v1 protein cache (sequence-keyed, all backbone/layer/rep
+    # channels in one file); the EBM gathers endpoint rows through the lightweight
+    # C3 pair-index caches.
     for rep in PAIR_REPS:
         exps.append(
             Experiment(
@@ -417,7 +415,7 @@ def _pair_experiments() -> list[Experiment]:
                 layer="pair",
                 script="scripts/audit_pair/run_c3_sae_endpoint_additive_ebm.py",
                 args=("--rep", rep),
-                inputs=_pair_cache_inputs(PAIR_CACHES, (rep,)),
+                inputs=_pair_index_inputs(C3_PAIR_INDEX_CACHES, C3_SAE_CACHE),
                 products=(RESULTS_PAIR / "c3_endpoint_additive_ebm_sae",),
             )
         )
@@ -443,7 +441,7 @@ def _pair_experiments() -> list[Experiment]:
             name="pair.c3_negative_sampling_bias",
             layer="pair",
             script="scripts/audit_pair/analyze_c3_negative_sampling_bias.py",
-            inputs=_pair_cache_inputs(PAIR_CACHES, ("sae_max",)),
+            inputs=_pair_index_inputs(C3_PAIR_INDEX_CACHES, C3_SAE_CACHE),
             products=(RESULTS_PAIR / "negative_sampling_audit",),
         )
     )
@@ -456,7 +454,7 @@ def _pair_experiments() -> list[Experiment]:
                 name=f"pair.c3_localization_{kind}",
                 layer="pair",
                 script=f"scripts/audit_pair/analyze_c3_localization_{kind}.py",
-                inputs=_pair_cache_inputs(PAIR_CACHES, ("sae_max",)),
+                inputs=_pair_index_inputs(C3_PAIR_INDEX_CACHES, C3_SAE_CACHE),
                 products=(RESULTS_PAIR / "negative_sampling_audit",),
             )
         )
@@ -525,12 +523,24 @@ def _baseline_experiments() -> list[Experiment]:
 # Cross-cutting -- ANALYSIS / INTERPRETABILITY (consume upstream products)
 # ===========================================================================
 def _analysis_experiments() -> list[Experiment]:
+    from conf.paths import TABPFN_RANKING
+
     return [
+        # Top-K SAE-feature probes: train on cross-species human_train endpoints,
+        # zero-shot score the 5 held-out species. Gathers endpoint channels from
+        # the shared cross-species v1 protein cache via per-graph pair-index caches
+        # (val is carved from human_train in-memory); needs the TabPFN feature
+        # ranking produced by the pair TabPFN step.
         Experiment(
             name="analysis.cross_species_tabpfn_topk",
             layer="analysis",
             script="scripts/analysis/run_cross_species_tabpfn_topk.py",
-            inputs=(CROSS_SPECIES_SEQ_CACHE,),
+            inputs=(
+                TABPFN_RANKING,
+                *_pair_index_inputs(
+                    CROSS_SPECIES_PAIR_INDEX_CACHES, CROSS_SPECIES_SAE_CACHE
+                ),
+            ),
             products=(RESULTS_PAIR / "tabpfn" / "cross_species_tabpfn_topk",),
         ),
         # Model-free t(p) diagnostic: how participation-prone each pair benchmark is.
@@ -546,8 +556,10 @@ def _analysis_experiments() -> list[Experiment]:
 
 
 def _interpretability_experiments() -> list[Experiment]:
-    # Explains TabPFN retrieval; consumes the TabPFN ranking product produced by
-    # the pair TabPFN step. Declared as an input so it stays gated until ready.
+    # Explains TabPFN retrieval on C3: consumes the TabPFN ranking product from
+    # the pair TabPFN step and materializes C3 endpoint features on the fly
+    # through the C3 pair-index caches + v1 protein cache. All declared as
+    # inputs so the cell stays gated until every dependency is ready.
     from conf.paths import TABPFN_RANKING, TABPFN_RETRIEVAL
 
     return [
@@ -555,7 +567,10 @@ def _interpretability_experiments() -> list[Experiment]:
             name="interp.tabpfn_retrieval",
             layer="interpretability",
             script="scripts/interpretability/explain_tabpfn_retrieval.py",
-            inputs=(TABPFN_RANKING,),
+            inputs=(
+                TABPFN_RANKING,
+                *_pair_index_inputs(C3_PAIR_INDEX_CACHES, C3_SAE_CACHE),
+            ),
             products=(TABPFN_RETRIEVAL,),
         ),
     ]

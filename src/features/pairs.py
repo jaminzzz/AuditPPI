@@ -9,6 +9,7 @@ from typing import Any, Optional
 import numpy as np
 import torch
 
+from conf.model import DEFAULT_BACKBONE
 from src.data.sequences import normalize_sequence
 
 PAIR_MODES = ("sym", "product", "absdiff", "concat")
@@ -192,6 +193,37 @@ def load_pair_index_cache(path: Path) -> dict[str, Any]:
     if payload.get("format") != PAIR_INDEX_FORMAT:
         raise ValueError(f"{path} is not an {PAIR_INDEX_FORMAT} cache")
     return payload
+
+
+def materialize_pair_endpoints(
+    index_cache: dict[str, Any],
+    protein_cache: dict[str, Any],
+    *,
+    rep: str,
+    backbone: str = DEFAULT_BACKBONE,
+    layer: int | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Gather per-pair endpoint feature rows from a pair-index cache.
+
+    Reads the endpoint row indices from an ``auditppi_pair_index_v1`` cache and
+    ``index_select``-s the requested representation channel out of an
+    ``auditppi_protein_features_v1`` protein cache, returning
+    ``(emb_a, emb_b, labels)`` row-aligned to the index cache's
+    ``kept_pair_indices``. This is the pair-scale analogue of
+    :func:`src.features.protein_cache.representation_matrix`: one lightweight
+    index cache serves every ``(backbone, layer, rep)`` channel and every pair
+    mode, replacing the old per-rep ``{split}_embeddings.pt`` dumps (which
+    duplicated every shared endpoint's vector across each pair it appeared in).
+    ``binary`` arrives as a bool matrix (``sae_max > 0``).
+    """
+    from src.features.protein_cache import representation_matrix
+
+    matrix = representation_matrix(protein_cache, rep, layer, backbone)
+    rows_a = index_cache["rows_a"].to(torch.long)
+    rows_b = index_cache["rows_b"].to(torch.long)
+    emb_a = matrix.index_select(0, rows_a)
+    emb_b = matrix.index_select(0, rows_b)
+    return emb_a, emb_b, index_cache["labels"]
 
 
 def build_pair_payload(

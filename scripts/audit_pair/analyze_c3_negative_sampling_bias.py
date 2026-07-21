@@ -22,9 +22,10 @@ asking two questions that directly bound the concordance / participation audits:
       construction.
 
 Inputs (all row-aligned, verified by export_c3_pair_id_alignment.py):
-  - reps sae_max  {split}_embeddings.pt   (emb_a/emb_b/label, continuous 16384-d fp16)
-  - reps binary   {split}_embeddings.pt   (emb_a/emb_b/label, 0/1 uint8 16384-d)
-  - c3_{split}_pair_ids.parquet           (row -> id_a, id_b, label)
+  - pair-index cache  c3/{split}_pairs.pt  (rows_a/rows_b/labels into the C3 v1
+    protein cache; one file serves both sae_max and binary channels)
+  - C3 v1 protein cache                    (auditppi_protein_features_v1)
+  - c3_{split}_pair_ids.parquet            (row -> id_a, id_b, label)
 
 Run in E1:
   python scripts/audit_pair/analyze_c3_negative_sampling_bias.py --split test
@@ -42,19 +43,20 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-auditppi")
 import numpy as np
 import pandas as pd
 
-from conf.paths import RESULTS_PAIR, PAIR_CACHES as SAE_REP_ROOT
+from conf.paths import C3_PAIR_INDEX_CACHES, C3_SAE_CACHE, RESULTS_PAIR
 from src.experiments.results import dump_experiment
+from src.features.pairs import load_pair_index_cache, load_protein_feature_cache, materialize_pair_endpoints
 
-REP_DIR = {"sae_max": SAE_REP_ROOT / "sae_max", "binary": SAE_REP_ROOT / "binary_thr0"}
 ALIGN_DIR = RESULTS_PAIR / "negative_sampling_audit"
 OUT_DIR = RESULTS_PAIR / "negative_sampling_audit"
 
 
-def _load_rep(rep: str, split: str):
-    import torch
-
-    d = torch.load(REP_DIR[rep] / f"{split}_embeddings.pt", map_location="cpu", weights_only=False)
-    return d["emb_a"], d["emb_b"], d["label"].numpy().astype(np.int8)
+def _load_rep(rep: str, split: str, *, index_cache: dict, protein_cache: dict):
+    """Materialize (emb_a, emb_b, label) for a rep from the pair-index cache."""
+    emb_a, emb_b, labels = materialize_pair_endpoints(
+        index_cache, protein_cache, rep=rep
+    )
+    return emb_a, emb_b, labels.numpy().astype(np.int8)
 
 
 def _row_cosine(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -115,8 +117,10 @@ def main() -> None:
     split = args.split
 
     # --- load row-aligned inputs -----------------------------------------------------
-    sae_a, sae_b, y_sae = _load_rep("sae_max", split)
-    bin_a, bin_b, y_bin = _load_rep("binary", split)
+    index_cache = load_pair_index_cache(C3_PAIR_INDEX_CACHES[split])
+    protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
+    sae_a, sae_b, y_sae = _load_rep("sae_max", split, index_cache=index_cache, protein_cache=protein_cache)
+    bin_a, bin_b, y_bin = _load_rep("binary", split, index_cache=index_cache, protein_cache=protein_cache)
     align = pd.read_parquet(ALIGN_DIR / f"c3_{split}_pair_ids.parquet")
     y = align["label"].to_numpy().astype(np.int8)
 
