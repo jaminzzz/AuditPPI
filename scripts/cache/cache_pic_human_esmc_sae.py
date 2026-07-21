@@ -13,7 +13,7 @@ Run in the unified E1 conda environment:
 
 Output format matches the ppi_fingerprint pooled cache:
   - seq2idx / sequences
-  - esmc_mean / esmc_sae_max / esmc_sae_mean
+  - esmc_mean / esmc_sae_max
 PIC-specific rows additionally stored:
   - protein_ids (ENSP), id2idx, labels (essentiality 0/1)
 """
@@ -114,7 +114,6 @@ def clone_cache_row(cache: dict, row: int):
     return (
         cache["esmc_mean"][row].detach().cpu().clone(),
         cache["esmc_sae_max"][row].detach().cpu().clone(),
-        cache["esmc_sae_mean"][row].detach().cpu().clone(),
     )
 
 
@@ -135,7 +134,6 @@ def save_cache(
     labels: list[int],
     esmc_mean: list,
     sae_max: list,
-    sae_mean: list,
     meta: dict,
 ) -> None:
     import torch
@@ -152,7 +150,6 @@ def save_cache(
         "seq2idx": seq2idx,
         "esmc_mean": torch.stack(esmc_mean),
         "esmc_sae_max": torch.stack(sae_max),
-        "esmc_sae_mean": torch.stack(sae_mean),
         "meta": meta,
     }
     torch.save(cache, out)
@@ -185,7 +182,6 @@ def main() -> None:
 
     esmc_mean = [None] * len(seqs)
     sae_max = [None] * len(seqs)
-    sae_mean = [None] * len(seqs)
     source = ["missing"] * len(seqs)
 
     # Resume from our own output if present.
@@ -204,7 +200,7 @@ def main() -> None:
             row = seq2idx.get(seq)
             if row is None:
                 continue
-            esmc_mean[i], sae_max[i], sae_mean[i] = clone_cache_row(cache, int(row))
+            esmc_mean[i], sae_max[i] = clone_cache_row(cache, int(row))
             source[i] = "resume" if path in resume_paths else "seed"
             hit += 1
         print(f"[prefill] {path.name}: matched {hit} by sequence", flush=True)
@@ -248,7 +244,6 @@ def main() -> None:
             labels=[labels[i] for i in keep],
             esmc_mean=[esmc_mean[i] for i in keep],
             sae_max=[sae_max[i] for i in keep],
-            sae_mean=[sae_mean[i] for i in keep],
             meta=meta,
         )
         size_mb = args.out.stat().st_size / 1e6
@@ -285,9 +280,8 @@ def main() -> None:
     assert k == ESMC_SAE_K, (k, ESMC_SAE_K)
     print(f"[sae] W_enc={tuple(w_enc.shape)} k={k}", flush=True)
 
-    def sae_pool(h: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def sae_pool(h: torch.Tensor) -> torch.Tensor:
         pooled_max = torch.zeros(dict_dim, device=h.device, dtype=torch.float32)
-        pooled_sum = torch.zeros(dict_dim, device=h.device, dtype=torch.float32)
         n_tokens = max(int(h.shape[0]), 1)
         chunk = max(1, args.sae_token_chunk)
         for start in range(0, n_tokens, chunk):
@@ -298,9 +292,8 @@ def main() -> None:
             vals, idx = pre.topk(k, dim=-1)
             flat_idx = idx.reshape(-1)
             flat_vals = vals.reshape(-1)
-            pooled_sum.scatter_add_(0, flat_idx, flat_vals)
             pooled_max.scatter_reduce_(0, flat_idx, flat_vals, reduce="amax", include_self=True)
-        return pooled_max, pooled_sum / n_tokens
+        return pooled_max
 
     @torch.inference_mode()
     def run_batch(batch_seqs: list[str]):
@@ -309,7 +302,7 @@ def main() -> None:
         out = model(**enc, output_hidden_states=args.store_all_hidden_states)
         h = out.hidden_states[args.layer] if args.store_all_hidden_states else out.last_hidden_state
         am = enc["attention_mask"].bool()
-        em, smx, smn = [], [], []
+        em, smx = [], []
         for i in range(h.size(0)):
             mask = am[i].clone()
             idxs = mask.nonzero(as_tuple=True)[0]
@@ -318,10 +311,9 @@ def main() -> None:
                 mask[idxs[-1]] = False
             hi = h[i][mask].float()
             em.append(hi.mean(0).half().cpu())
-            fmax, fmean = sae_pool(hi)
+            fmax = sae_pool(hi)
             smx.append(fmax.half().cpu())
-            smn.append(fmean.half().cpu())
-        return em, smx, smn
+        return em, smx
 
     order = sorted(missing, key=lambda i: len(seqs[i]))
     i = 0
@@ -332,9 +324,9 @@ def main() -> None:
         bs = max(1, args.token_budget // seq_len)
         idxs = order[i : i + bs]
         i += bs
-        em, smx, smn = run_batch([seqs[j] for j in idxs])
-        for j, a, b, c in zip(idxs, em, smx, smn):
-            esmc_mean[j], sae_max[j], sae_mean[j] = a, b, c
+        em, smx = run_batch([seqs[j] for j in idxs])
+        for j, a, b in zip(idxs, em, smx):
+            esmc_mean[j], sae_max[j] = a, b
             source[j] = "inferred"
         done += len(idxs)
         if done % 512 < bs:
@@ -350,7 +342,6 @@ def main() -> None:
         labels=labels,
         esmc_mean=esmc_mean,
         sae_max=sae_max,
-        sae_mean=sae_mean,
         meta=meta,
     )
     fp = torch.stack(sae_max)

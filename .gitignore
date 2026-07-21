@@ -8,6 +8,10 @@
 /external/
 /baselines/
 
+# --- Retired data/scripts kept locally for provenance (layer-mismatched *_old
+#     caches, superseded cache builders); never version-controlled ---
+/backups/
+
 # --- Audit products (regenerable; layered under results/{audit_*,analysis,misc}/) ---
 /results/
 

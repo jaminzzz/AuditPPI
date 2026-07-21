@@ -23,10 +23,18 @@ import pandas as pd
 import torch
 from sklearn.metrics import roc_auc_score
 
-from conf.model import DEFAULT_SEED
+from conf.model import (
+    BACKBONE_LAYERS,
+    BACKBONES,
+    DEFAULT_BACKBONE,
+    DEFAULT_SEED,
+    resolve_backbone_layer,
+)
 from conf.paths import RESULTS_PAIR, PRING_ROOT, PRING_HUMAN_SAE_CACHE
 from src.eval.metrics import pair_score_metrics as metrics
 from src.experiments.results import dump_experiment
+from src.features.pairs import load_protein_feature_cache
+from src.features.protein_cache import representation_matrix
 from src.runtime import seed_all
 from src.models.architectures.endpoint_mlp import EndpointMLP
 
@@ -52,16 +60,26 @@ def read_pair_file(path: Path) -> tuple[list[str], list[str], np.ndarray]:
     return a_ids, b_ids, np.asarray(labels, dtype=np.int64)
 
 
-def load_cache(rep: str, cache_path: Path) -> tuple[torch.Tensor, dict[str, int]]:
-    cache = torch.load(cache_path, map_location="cpu", weights_only=False)
-    mat = cache["esmc_sae_max"]
+def load_cache(
+    rep: str, cache_path: Path, *, backbone: str = DEFAULT_BACKBONE, layer: int | None = None
+) -> tuple[torch.Tensor, dict[str, int]]:
+    """Load the endpoint feature matrix + id->row map from a formal feature cache.
+
+    Reads the ``auditppi_protein_features_v1`` layout, selecting the
+    ``(backbone, layer, rep)`` channel via the shared
+    :func:`~src.features.protein_cache.representation_matrix`. ``binary`` arrives
+    as bool and is cast to uint8 (the MLP's ``float()`` upcast is applied per
+    batch), ``sae_max`` stays float.
+    """
+    cache = load_protein_feature_cache(cache_path)
+    mat = representation_matrix(cache, rep, layer, backbone)
     if rep == "binary":
-        mat = (mat > 0).to(torch.uint8)
+        mat = mat.to(torch.uint8)
     elif rep == "sae_max":
         mat = mat.float()
     else:
         raise ValueError(rep)
-    return mat, cache["uniprotid2idx"]
+    return mat, cache["id2idx"]
 
 
 def load_split(method: str, split: str, id_to_idx: dict[str, int]) -> dict:
@@ -235,6 +253,8 @@ def train_one(args: argparse.Namespace, method: str, mat: torch.Tensor, id_to_id
         "formula": "logit(PPI(A,B)) = MLP_no_bias(SAE_A) + MLP_no_bias(SAE_B)",
         "method": method,
         "rep": args.rep,
+        "backbone": args.backbone,
+        "layer": resolve_backbone_layer(args.backbone, args.layer),
         "seed": args.seed,
         "best_epoch": int(best["epoch"]),
         "dim": dim,
@@ -261,6 +281,8 @@ def train_one(args: argparse.Namespace, method: str, mat: torch.Tensor, id_to_id
             "test": int(test_split["n_skipped"]),
         },
         "hyperparameters": {
+            "backbone": args.backbone,
+            "layer": resolve_backbone_layer(args.backbone, args.layer),
             "hidden": args.hidden,
             "layers": args.layers,
             "dropout": args.dropout,
@@ -287,6 +309,19 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--method", choices=[*METHODS, "all"], default="all")
     p.add_argument("--rep", choices=REPS, default="sae_max")
+    p.add_argument(
+        "--backbone",
+        choices=BACKBONES,
+        default=DEFAULT_BACKBONE,
+        help="Backbone family to read from the formal feature cache (esmc or esm2).",
+    )
+    p.add_argument(
+        "--layer",
+        type=int,
+        default=None,
+        choices=sorted({layer for layers in BACKBONE_LAYERS.values() for layer in layers}),
+        help="Backbone layer; defaults to the backbone's default (ESM-C 60, ESM-2 33).",
+    )
     p.add_argument(
         "--cache-path",
         type=Path,
@@ -320,14 +355,18 @@ def main() -> None:
     args = p.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    mat, id_to_idx = load_cache(args.rep, args.cache_path)
+    resolved_layer = resolve_backbone_layer(args.backbone, args.layer)
+    mat, id_to_idx = load_cache(
+        args.rep, args.cache_path, backbone=args.backbone, layer=resolved_layer
+    )
+    bb_tag = f"{args.backbone}L{resolved_layer}"
     methods = METHODS if args.method == "all" else (args.method,)
     all_results = {}
     rows = []
     for method in methods:
         result, aux = train_one(args, method, mat, id_to_idx)
         all_results[method] = result
-        stem = f"pring_{method.lower()}_endpoint_additive_mlp_{args.rep}_h{args.hidden}_l{args.layers}_nobias"
+        stem = f"pring_{method.lower()}_endpoint_additive_mlp_{args.rep}_{bb_tag}_h{args.hidden}_l{args.layers}_nobias"
         result_path = args.out_dir / f"{stem}_metrics.json"
         history_path = args.out_dir / f"{stem}_history.tsv"
         dump_experiment(
@@ -367,8 +406,8 @@ def main() -> None:
             flush=True,
         )
 
-    summary_path = args.out_dir / f"pring_endpoint_additive_mlp_{args.rep}_h{args.hidden}_l{args.layers}_nobias_summary.json"
-    tsv_path = args.out_dir / f"pring_endpoint_additive_mlp_{args.rep}_h{args.hidden}_l{args.layers}_nobias_metrics_summary.tsv"
+    summary_path = args.out_dir / f"pring_endpoint_additive_mlp_{args.rep}_{bb_tag}_h{args.hidden}_l{args.layers}_nobias_summary.json"
+    tsv_path = args.out_dir / f"pring_endpoint_additive_mlp_{args.rep}_{bb_tag}_h{args.hidden}_l{args.layers}_nobias_metrics_summary.tsv"
     dump_experiment(
         summary_path,
         task="pair.endpoint_additive_mlp",

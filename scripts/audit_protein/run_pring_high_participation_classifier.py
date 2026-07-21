@@ -20,7 +20,13 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from conf.audit import PARTICIPATION_QUANTILE
-from conf.model import DEFAULT_SEED
+from conf.model import (
+    BACKBONE_LAYERS,
+    BACKBONES,
+    DEFAULT_BACKBONE,
+    DEFAULT_SEED,
+    resolve_backbone_layer,
+)
 from conf.paths import (
     PRING_HUMAN_SAE_CACHE as DEFAULT_PRING_CACHE,
     PRING_PARTICIPATION_DIR as OUT_DIR,
@@ -122,6 +128,22 @@ def main() -> None:
     p.add_argument("--out-dir", type=Path, default=OUT_DIR / "high_p90_xgboost")
     p.add_argument("--method", choices=[*METHODS, "all"], default="all")
     p.add_argument("--feature-kind", choices=[*FORMAL_FEATURE_KINDS, "all"], default="all")
+    p.add_argument(
+        "--backbone",
+        choices=BACKBONES,
+        default=DEFAULT_BACKBONE,
+        help="Backbone family to read from the v1 feature cache (esmc or esm2).",
+    )
+    p.add_argument(
+        "--layer",
+        type=int,
+        choices=sorted({layer for layers in BACKBONE_LAYERS.values() for layer in layers}),
+        default=None,
+        help=(
+            "Backbone layer to read from the v1 feature cache; defaults to the "
+            "backbone's default layer (esmc=60, esm2=33). Ignored for sequence_basic."
+        ),
+    )
     p.add_argument("--quantile", type=float, default=PARTICIPATION_QUANTILE)
     p.add_argument("--val-frac", type=float, default=0.2)
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
@@ -135,6 +157,7 @@ def main() -> None:
     p.add_argument("--keep-self-pairs", action="store_true")
     p.add_argument("--write-labels-only", action="store_true")
     args = p.parse_args()
+    args.layer = resolve_backbone_layer(args.backbone, args.layer)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     graph_labels = full_graph_participation_labels(root=args.root, self_loop_mode="drop")
@@ -193,6 +216,8 @@ def main() -> None:
                 val_frac=args.val_frac,
                 seed=args.seed,
                 cache_path=args.cache_path,
+                layer=args.layer,
+                backbone=args.backbone,
             )
             ytr = np.asarray([high[pid] for pid in pack.train_ids], dtype=np.int8)
             yva = np.asarray([high[pid] for pid in pack.val_ids], dtype=np.int8)
@@ -282,7 +307,10 @@ def main() -> None:
                 "feature_importance": importance_summary,
             }
 
-            stem = f"pring_human_{method.lower()}_{feature}_high_q{int(args.quantile * 100):02d}_xgboost"
+            stem = (
+                f"pring_human_{method.lower()}_{feature}_{args.backbone}_l{args.layer}"
+                f"_high_q{int(args.quantile * 100):02d}_xgboost"
+            )
             dump_experiment(
                 args.out_dir / f"{stem}.json",
                 task="protein.high_participation",
@@ -293,7 +321,7 @@ def main() -> None:
                 seed=args.seed,
                 payload=res,
                 metrics=res["node_metrics"]["test"],
-                hyperparameters=res.get("model"),
+                hyperparameters={**(res.get("model") or {}), "backbone": args.backbone, "layer": args.layer},
             )
             write_predictions(
                 args.out_dir / f"{stem}_protein_predictions.tsv",
@@ -324,7 +352,10 @@ def main() -> None:
                 flush=True,
             )
 
-    summary_path = args.out_dir / f"pring_human_high_q{int(args.quantile * 100):02d}_xgboost_summary.json"
+    summary_path = args.out_dir / (
+        f"pring_human_{args.backbone}_l{args.layer}"
+        f"_high_q{int(args.quantile * 100):02d}_xgboost_summary.json"
+    )
     dump_experiment(
         summary_path,
         task="protein.high_participation",
@@ -344,7 +375,11 @@ def main() -> None:
             }
             for method, method_cells in summary.items()
         },
-        hyperparameters={"quantile": args.quantile},
+        hyperparameters={
+            "quantile": args.quantile,
+            "backbone": args.backbone,
+            "layer": args.layer,
+        },
     )
     print(f"[done] wrote {summary_path}", flush=True)
 

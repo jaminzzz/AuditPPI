@@ -76,17 +76,44 @@ ESMC_SAE_K = 64                     # top-k active features per residue (k64 cod
 
 # === ESM-2 (650M) — legacy InterPLM fingerprint line =======================
 # facebook/esm2_t33_650M_UR50D: 33 layers, last-layer hidden 1280. The InterPLM
-# ReLU-SAE for layer 33 projects to a 10240-d codebook.
+# ReLU-SAE for layer 33 projects to a 10240-d codebook. Unlike ESM-C, ESM-2 ships
+# a single SAE layer, so its "available layers" set is the singleton (33,).
 ESM2_LAYER = 33                     # last layer of esm2_t33 (== last_hidden_state)
 ESM2_DIM = 1280                     # backbone hidden size (SAE activation_dim)
 ESM2_SAE_DIM = 10240                # InterPLM SAE codebook size
+ESM2_SAE_AVAILABLE_LAYERS: tuple[int, ...] = (33,)  # InterPLM ships layer 33 only
+ESM2_SAE_DEFAULT_LAYER = 33
 
 
-# === Shared / project-wide defaults ========================================
-# Residue truncation cap shared by every extractor. BOS/EOS are added on top
-# (callers use ``max_length = MAX_RESIDUES + 2``), so this is the residue budget,
-# not the tokenizer's max_length.
-MAX_RESIDUES = 1022
+# === Residue truncation (BOS/EOS sit on top of these budgets) ===============
+# Callers use ``max_length = max_residues + 2`` (or equivalent), so these are
+# *residue* caps, not tokenizer max_length.
+#
+# Backbone-native defaults follow each model's training / published context:
+#   * ESM-2  -- 1024-token window  => 1022 residues + BOS/EOS
+#   * ESM-C  -- 2048-token window  => 2046 residues + BOS/EOS
+# ESM-C may also be run at 1022 (``ESMC_MAX_RESIDUES_COMPAT``) when aligning to
+# legacy L60 pooled caches or to the ESM-2 length budget for fair comparison.
+ESM2_MAX_RESIDUES = 1022
+ESMC_MAX_RESIDUES = 2046
+ESMC_MAX_RESIDUES_COMPAT = 1022  # optional shorter ESM-C budget
+
+# Back-compat alias used by legacy single-layer cache builders and older call
+# sites. Equals the ESM-2 / historical 1022 cap; new formal extractors should
+# import ``ESMC_MAX_RESIDUES`` / ``ESM2_MAX_RESIDUES`` instead of this name.
+MAX_RESIDUES = ESM2_MAX_RESIDUES
+
+# Length variants that a v1 protein cache may be sliced at. This is a *which-file*
+# axis (it names the on-disk cache variant, ``..._max{N}.pt``), NOT a within-cache
+# selector like backbone/layer. ESM-C can be pooled at either budget; ESM-2's SAE
+# is 1022-native, so an ``esm2_*`` channel only exists in the max1022 variant.
+CACHE_MAX_RESIDUES_VARIANTS: tuple[int, ...] = (ESMC_MAX_RESIDUES_COMPAT, ESMC_MAX_RESIDUES)  # (1022, 2046)
+CACHE_MAX_RESIDUES_DEFAULT = ESMC_MAX_RESIDUES_COMPAT  # 1022 — the cross-backbone-comparable slice on disk
+
+
+def cache_max_residues_tag(max_residues: int) -> str:
+    """Filename tag for a length variant, e.g. ``max1022`` (the v1 slicer suffix)."""
+    return f"max{int(max_residues)}"
 
 # "Active feature" definition for the binary SAE view: a feature fires on a
 # residue iff ``esmc_sae_max > SAE_BINARY_THRESHOLD``. Encoded on disk as the
@@ -102,6 +129,56 @@ SAE_BINARY_THRESHOLD = 0.0
 #   sae_max   -- continuous pooled SAE max   [ESMC_SAE_DIM]
 #   esmc_mean -- raw ESM-C layer mean        [ESMC_DIM]
 REPRESENTATIONS: tuple[str, ...] = ("binary", "sae_max", "esmc_mean")
+
+# === Backbone selector for v1 protein feature caches =======================
+# A v1 cache (``auditppi_protein_features_v1``) holds channels for BOTH backbone
+# lines at once: ``esmc_l{60,80}_{channel}`` AND ``esm2_l33_{channel}``, where
+# channel in {dense_mean, dense_max, sae_max, sae_binary}. `backbone` selects
+# which family a consumer reads — a within-cache axis, orthogonal to the
+# length/which-file axis (CACHE_MAX_RESIDUES_*) above.
+#
+# The three REPRESENTATIONS names are backbone-agnostic aliases onto channels:
+#   sae_max   -> {backbone}_l{layer}_sae_max     (continuous pooled SAE max)
+#   binary    -> {backbone}_l{layer}_sae_binary  (== sae_max > 0, bit-identical)
+#   esmc_mean -> {backbone}_l{layer}_dense_mean  (raw layer mean; name kept for
+#                back-compat even when backbone == esm2)
+BACKBONES: tuple[str, ...] = ("esmc", "esm2")
+DEFAULT_BACKBONE = "esmc"
+
+# Layers a v1 cache carries per backbone. ESM-C ships two SAE layers; ESM-2's
+# InterPLM SAE is layer-33 only.
+BACKBONE_LAYERS: dict[str, tuple[int, ...]] = {
+    "esmc": ESMC_SAE_AVAILABLE_LAYERS,   # (60, 80)
+    "esm2": (ESM2_LAYER,),               # (33,)
+}
+BACKBONE_DEFAULT_LAYER: dict[str, int] = {
+    "esmc": ESMC_SAE_DEFAULT_LAYER,      # 60
+    "esm2": ESM2_LAYER,                  # 33
+}
+# Per-backbone column counts, keyed by (backbone, is_dense). Used by rep_dim.
+BACKBONE_DENSE_DIM: dict[str, int] = {"esmc": ESMC_DIM, "esm2": ESM2_DIM}
+BACKBONE_SAE_DIM: dict[str, int] = {"esmc": ESMC_SAE_DIM, "esm2": ESM2_SAE_DIM}
+
+
+def feature_cache_key(backbone: str, layer: int, channel: str) -> str:
+    """v1 feature-cache key, e.g. ``esmc_l60_sae_max`` / ``esm2_l33_dense_mean``."""
+    if backbone not in BACKBONES:
+        raise ValueError(f"backbone must be one of {BACKBONES}, got {backbone!r}")
+    return f"{backbone}_l{int(layer)}_{channel}"
+
+
+def resolve_backbone_layer(backbone: str, layer: int | None) -> int:
+    """Validate ``layer`` against a backbone (default when ``None``)."""
+    if backbone not in BACKBONES:
+        raise ValueError(f"backbone must be one of {BACKBONES}, got {backbone!r}")
+    if layer is None:
+        return BACKBONE_DEFAULT_LAYER[backbone]
+    if int(layer) not in BACKBONE_LAYERS[backbone]:
+        raise ValueError(
+            f"backbone {backbone!r} has no layer {layer}; "
+            f"available: {BACKBONE_LAYERS[backbone]}"
+        )
+    return int(layer)
 
 # Project-wide RNG seed. Every model now uses this; the EBM/endpoint-additive
 # line previously pinned 7 to reproduce its first cached manuscript fits, but that

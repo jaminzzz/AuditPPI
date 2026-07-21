@@ -33,7 +33,15 @@ from typing import Dict, List, Mapping, Optional, Sequence
 
 import numpy as np
 
-from conf.model import DEFAULT_SEED
+from conf.model import (
+    BACKBONE_LAYERS,
+    BACKBONES,
+    CACHE_MAX_RESIDUES_DEFAULT,
+    CACHE_MAX_RESIDUES_VARIANTS,
+    DEFAULT_BACKBONE,
+    DEFAULT_SEED,
+    resolve_backbone_layer,
+)
 from conf.paths import (
     PRING_ROOT,
     PRING_CROSS_SPECIES as CROSS_SPECIES,
@@ -82,6 +90,9 @@ def run_pring_cross_species_generalization(
     seed: int = DEFAULT_SEED,
     kmer: int = 2,
     feature_kind: str = "sae_max",
+    backbone: str = DEFAULT_BACKBONE,
+    layer: Optional[int] = None,
+    max_residues: int = CACHE_MAX_RESIDUES_DEFAULT,
     train_cache_path: Optional[Path] = None,
     species_cache_paths: Optional[Mapping[str, Path]] = None,
     model_kind: str = "xgboost",
@@ -102,6 +113,7 @@ def run_pring_cross_species_generalization(
     model_kind = model_kind.lower()
     if model_kind not in MODEL_KINDS:
         raise ValueError(f"model_kind must be one of {MODEL_KINDS}")
+    resolved_layer = resolve_backbone_layer(backbone, layer)
 
     train_labels = full_graph_participation_labels(
         root=root, species=TRAIN_SPECIES, self_loop_mode=self_loop_mode
@@ -121,7 +133,7 @@ def run_pring_cross_species_generalization(
         cache_path = (
             Path(train_cache_path)
             if train_cache_path
-            else species_cache_path(TRAIN_SPECIES)
+            else species_cache_path(TRAIN_SPECIES, max_residues)
         )
         if not cache_path.exists():
             raise FileNotFoundError(
@@ -137,6 +149,8 @@ def run_pring_cross_species_generalization(
         feature_kind=feature_kind,
         kmer=kmer,
         cache=train_cache,
+        layer=layer,
+        backbone=backbone,
     )
     row_by_id = {protein_id: row for row, protein_id in enumerate(train_kept)}
     train_ids, val_ids = stratified_degree_split(
@@ -220,7 +234,7 @@ def run_pring_cross_species_generalization(
         if needs_cache:
             cache_path = (species_cache_paths or {}).get(
                 species_name
-            ) or species_cache_path(species_name)
+            ) or species_cache_path(species_name, max_residues)
             cache_path = Path(cache_path)
             if not cache_path.exists():
                 raise FileNotFoundError(
@@ -237,6 +251,8 @@ def run_pring_cross_species_generalization(
             feature_kind=feature_kind,
             kmer=kmer,
             cache=species_cache,
+            layer=layer,
+            backbone=backbone,
         )
         if len(test_ids) < 3:
             raise RuntimeError(
@@ -315,6 +331,9 @@ def run_pring_cross_species_generalization(
         },
         "features": {
             "kind": feature_kind,
+            "backbone": backbone,
+            "layer": int(resolved_layer),
+            "max_residues": int(max_residues),
             "dim": int(feature_dim),
             "kmer": kmer if feature_kind == "sequence_basic" else None,
         },
@@ -334,7 +353,7 @@ def run_pring_cross_species_generalization(
     }
     if write:
         out_dir.mkdir(parents=True, exist_ok=True)
-        stem = f"pring_crossspecies_{feature_kind}_{model_kind}"
+        stem = f"pring_crossspecies_{feature_kind}_{backbone}_l{resolved_layer}_{model_kind}"
         output_path = out_dir / f"{stem}.json"
         dump_experiment(
             output_path,
@@ -383,6 +402,26 @@ def main() -> None:
         help="'all' runs the formal inputs: sae_max, binary, esmc_mean",
     )
     p.add_argument("--model-kind", default="xgboost", choices=MODEL_KINDS)
+    p.add_argument(
+        "--backbone",
+        choices=BACKBONES,
+        default=DEFAULT_BACKBONE,
+        help="pLM line to read from the v1 feature cache (esmc or esm2).",
+    )
+    p.add_argument(
+        "--layer",
+        type=int,
+        choices=sorted({layer for layers in BACKBONE_LAYERS.values() for layer in layers}),
+        default=None,
+        help="Backbone layer; defaults to the backbone's default (ESM-C 60, ESM-2 33).",
+    )
+    p.add_argument(
+        "--max-residues",
+        type=int,
+        choices=CACHE_MAX_RESIDUES_VARIANTS,
+        default=CACHE_MAX_RESIDUES_DEFAULT,
+        help="On-disk length variant of the v1 cache (max1022 / max2046).",
+    )
     p.add_argument("--train-cache-path", type=Path, default=None,
                    help="human pooled ESM-C/SAE cache; defaults to the standard PRING human cache")
     p.add_argument("--calibration", choices=["log_linear", "scale", "none"], default="log_linear")
@@ -417,6 +456,9 @@ def main() -> None:
             seed=args.seed,
             kmer=args.kmer,
             feature_kind=feature_kind,
+            backbone=args.backbone,
+            layer=args.layer,
+            max_residues=args.max_residues,
             train_cache_path=args.train_cache_path,
             model_kind=args.model_kind,
             calibration=args.calibration,
@@ -445,7 +487,8 @@ def main() -> None:
     print(json.dumps(summary, indent=2), flush=True)
     if not args.no_write:
         args.out_dir.mkdir(parents=True, exist_ok=True)
-        stem = f"pring_crossspecies_{args.model_kind}_summary"
+        resolved_layer = resolve_backbone_layer(args.backbone, args.layer)
+        stem = f"pring_crossspecies_{args.model_kind}_{args.backbone}_l{resolved_layer}_summary"
         dump_experiment(
             args.out_dir / f"{stem}.json",
             task="protein.cross_species_generalization",

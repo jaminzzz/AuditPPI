@@ -10,21 +10,37 @@ The ESM-C run writes layers 60 and 80 in one cache:
 
 ```text
 esmc_l{60,80}_dense_{mean,max}
-esmc_l{60,80}_sae_{mean,max,binary}
+esmc_l{60,80}_sae_{max,binary}
 ```
 
 The ESM-2 run writes its final layer (33 for ESM-2 650M):
 
 ```text
 esm2_l33_dense_{mean,max}
-esm2_l33_sae_{mean,max,binary}
+esm2_l33_sae_{max,binary}
 ```
 
 Binary features are defined only for the non-negative SAE representation.
+SAE mean-pooling is intentionally not written: the audit uses ``sae_max``
+(continuous fingerprint) and ``sae_binary`` (active-feature set).
+
+### Residue truncation
+
+Defaults follow each backbone's training context (BOS/EOS are extra):
+
+| backbone | default `--max-residues` | token window |
+|----------|--------------------------|--------------|
+| ESM-2    | 1022                     | 1024         |
+| ESM-C    | 2046                     | 2048         |
+
+For an ESM-C cache aligned to the legacy L60 1022 budget (or to ESM-2 length),
+pass `--max-residues 1022` (`conf.model.ESMC_MAX_RESIDUES_COMPAT`). Put the cap
+in the output filename so pools are not mixed, e.g.
+`pooled_esmc_l60_l80_max2046_features.pt` vs `..._max1022_...`.
 
 ### RAPPPID C1/C2/C3 example
 
-Run ESM-C in the `E1` environment:
+Run ESM-C in the `E1` environment (default max-residues=2046):
 
 ```bash
 /data/wmzhu/anaconda3/envs/E1/bin/python \
@@ -41,10 +57,17 @@ Run ESM-C in the `E1` environment:
   --input data/raw/rapppid_c3/c3.test.csv \
   --sequence-cols query,text \
   --layers 60,80 \
-  --output data/sae/seq_caches/rapppid_esmc_l60_l80_features.pt
+  --output data/sae/seq_caches/rapppid_esmc_l60_l80_max2046_features.pt
 ```
 
-Run ESM-2 + InterPLM SAE in the E1 environment:
+Optional ESM-C @ 1022 (legacy-aligned):
+
+```bash
+... extract_protein_features.py --backbone esmc --max-residues 1022 \
+  --output data/sae/seq_caches/rapppid_esmc_l60_l80_max1022_features.pt
+```
+
+Run ESM-2 + InterPLM SAE in the E1 environment (default max-residues=1022):
 
 ```bash
 /data/wmzhu/anaconda3/envs/E1/bin/python \
@@ -54,7 +77,7 @@ Run ESM-2 + InterPLM SAE in the E1 environment:
   --input data/raw/rapppid_c3/c3.val.csv \
   --input data/raw/rapppid_c3/c3.test.csv \
   --sequence-cols query,text \
-  --output data/sae/seq_caches/rapppid_esm2_l33_features.pt
+  --output data/sae/seq_caches/rapppid_esm2_l33_max1022_features.pt
 ```
 
 FASTA inputs require no column arguments. For ID/sequence tables use, for

@@ -5,8 +5,10 @@ friends) is a ``torch.save`` payload with at least::
 
     seq2idx       dict[str, int]   sequence string -> row index
     esmc_sae_max  Tensor [N, ESMC_SAE_DIM]   pooled SAE max  (the SAE channel)
-    esmc_sae_mean Tensor [N, ESMC_SAE_DIM]   pooled SAE mean (optional)
     esmc_mean     Tensor [N, ESMC_DIM]       pooled dense ESM-C mean
+
+Older on-disk caches may still contain ``esmc_sae_mean``; that channel is no
+longer part of the formal feature contract and is ignored by this reader.
 
 Both the fingerprint baseline (``src.ppi_fingerprint``) and the participation
 oracle scripts previously each re-implemented the cache load, the
@@ -29,44 +31,89 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from conf.model import ESMC_DIM, ESMC_SAE_DIM, REPRESENTATIONS, SAE_BINARY_THRESHOLD
+from conf.model import (
+    BACKBONE_DENSE_DIM,
+    BACKBONE_SAE_DIM,
+    DEFAULT_BACKBONE,
+    ESMC_DIM,
+    ESMC_SAE_DIM,
+    REPRESENTATIONS,
+    SAE_BINARY_THRESHOLD,
+    feature_cache_key,
+    resolve_backbone_layer,
+)
 
 # Keys picked out of a pooled cache payload (the rest of the file is ignored).
-POOLED_CACHE_KEYS = ("seq2idx", "esmc_mean", "esmc_sae_max", "esmc_sae_mean")
+# ``esmc_sae_mean`` is intentionally absent: new extracts do not write it, and
+# consumers only use max / binary / dense-mean.
+POOLED_CACHE_KEYS = ("seq2idx", "esmc_mean", "esmc_sae_max")
 
 
 def load_pooled_cache(path: Path, *, keys: Tuple[str, ...] = POOLED_CACHE_KEYS) -> Dict:
-    """Read a per-protein pooled cache -> ``{seq2idx, esmc_mean, esmc_sae_max, esmc_sae_mean}``."""
+    """Read a per-protein pooled cache -> ``{seq2idx, esmc_mean, esmc_sae_max}``."""
     import torch
 
     payload = torch.load(path, map_location="cpu", weights_only=False)
     return {key: payload[key] for key in keys}
 
 
-def rep_dim(rep: str) -> int:
-    """Column count of a representation's per-protein matrix."""
+def rep_dim(rep: str, backbone: str = DEFAULT_BACKBONE) -> int:
+    """Column count of a representation's per-protein matrix for a backbone."""
     if rep not in REPRESENTATIONS:
         raise ValueError(f"unknown representation {rep!r}; choose from {REPRESENTATIONS}")
-    return ESMC_DIM if rep == "esmc_mean" else ESMC_SAE_DIM
+    return BACKBONE_DENSE_DIM[backbone] if rep == "esmc_mean" else BACKBONE_SAE_DIM[backbone]
 
 
-def representation_matrix(cache: Dict, rep: str):
+# Representation -> v1 channel suffix. ``binary`` maps to the stored
+# ``sae_binary`` channel, which is bit-identical to ``sae_max > 0`` (verified),
+# so v1 and legacy flat-key caches yield the same boolean matrix. ``esmc_mean``
+# is a historical alias for the dense layer-mean channel of *either* backbone.
+_REP_TO_V1_CHANNEL = {
+    "sae_max": "sae_max",
+    "binary": "sae_binary",
+    "esmc_mean": "dense_mean",
+}
+
+
+def representation_matrix(
+    cache: Dict,
+    rep: str,
+    layer: Optional[int] = None,
+    backbone: str = DEFAULT_BACKBONE,
+):
     """The per-protein matrix for a representation (torch tensor; ``binary`` is bool).
 
-    Handles the three baseline ``REPRESENTATIONS`` plus ``sae_mean`` -- the pooled
-    SAE-mean channel used by the participation feature kinds. ``sae_mean`` is
-    intentionally *not* in ``REPRESENTATIONS`` (that tuple is the fingerprint
-    baseline's rep contract); it is accepted here only as a decodable channel.
+    Reads the formal ``auditppi_protein_features_v1`` layout when the cache
+    carries a ``features`` subdict, selecting
+    ``features[f"{backbone}_l{layer}_{channel}"]`` (``layer=None`` picks the
+    backbone's default layer). Falls back to the legacy flat-key schema
+    (``esmc_sae_max`` / ``esmc_mean``, ESM-C single layer) for the archived
+    ``*_old`` caches; ``layer``/``backbone`` are ignored there.
     """
+    if rep not in REPRESENTATIONS:
+        raise ValueError(f"unknown representation {rep!r}; choose from {REPRESENTATIONS}")
+
+    features = cache.get("features")
+    if features is not None:
+        resolved_layer = resolve_backbone_layer(backbone, layer)
+        channel = _REP_TO_V1_CHANNEL[rep]
+        key = feature_cache_key(backbone, resolved_layer, channel)
+        if key not in features:
+            raise KeyError(
+                f"feature {key!r} absent from v1 cache; available: {sorted(features)}"
+            )
+        return features[key]
+
+    # Legacy flat-key fallback (ESM-C single-layer archived caches only).
+    if backbone != "esmc":
+        raise KeyError(
+            f"legacy flat-key cache holds only ESM-C; cannot serve backbone {backbone!r}"
+        )
     if rep == "binary":
         return cache["esmc_sae_max"] > SAE_BINARY_THRESHOLD
     if rep == "sae_max":
         return cache["esmc_sae_max"]
-    if rep == "sae_mean":
-        return cache["esmc_sae_mean"]
-    if rep == "esmc_mean":
-        return cache["esmc_mean"]
-    raise ValueError(f"unknown representation {rep!r}; choose from {(*REPRESENTATIONS, 'sae_mean')}")
+    return cache["esmc_mean"]
 
 
 def protein_feature_rows(
@@ -74,6 +121,8 @@ def protein_feature_rows(
     sequences: Dict[str, str],
     cache: Dict,
     rep: str,
+    layer: Optional[int] = None,
+    backbone: str = DEFAULT_BACKBONE,
 ) -> Tuple[Optional[np.ndarray], List[str]]:
     """Map protein IDs through their sequences into pooled fingerprint rows.
 
@@ -85,7 +134,7 @@ def protein_feature_rows(
     import torch
 
     seq2idx = cache["seq2idx"]
-    matrix = representation_matrix(cache, rep)
+    matrix = representation_matrix(cache, rep, layer, backbone)
     rows: List[int] = []
     kept: List[str] = []
     for protein_id in protein_ids:
@@ -101,7 +150,13 @@ def protein_feature_rows(
     return matrix.index_select(0, index).float().numpy(), kept
 
 
-def pair_feature_rows(bench, cache: Dict, rep: str):
+def pair_feature_rows(
+    bench,
+    cache: Dict,
+    rep: str,
+    layer: Optional[int] = None,
+    backbone: str = DEFAULT_BACKBONE,
+):
     """Map benchmark pairs into per-endpoint pooled representation rows.
 
     Returns ``(A, B, y, kept_idx)`` with A/B float32 torch tensors
@@ -112,7 +167,7 @@ def pair_feature_rows(bench, cache: Dict, rep: str):
     import torch
 
     seq2idx = cache["seq2idx"]
-    matrix = representation_matrix(cache, rep)
+    matrix = representation_matrix(cache, rep, layer, backbone)
     rows_a: List[int] = []
     rows_b: List[int] = []
     ys: List[int] = []

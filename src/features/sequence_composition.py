@@ -15,9 +15,9 @@ import numpy as np
 
 AA = "ACDEFGHIKLMNPQRSTVWY"
 AA_TO_INDEX = {amino_acid: index for index, amino_acid in enumerate(AA)}
-FEATURE_KINDS = ("sequence_basic", "sae_max", "sae_mean", "binary", "esmc_mean")
+FEATURE_KINDS = ("sequence_basic", "sae_max", "binary", "esmc_mean")
 FORMAL_FEATURE_KINDS = ("sae_max", "binary", "esmc_mean")
-SAE_FEATURE_KINDS = ("sae_max", "sae_mean", "binary")
+SAE_FEATURE_KINDS = ("sae_max", "binary")
 
 _FEATURE_ALIASES = {
     "pooled_sae": "sae_max",
@@ -47,8 +47,9 @@ def cache_feature_names(feature_kind: str, dim: int) -> list[str]:
         return [f"esmc_mean_{index:04d}" for index in range(dim)]
     if feature_kind == "binary":
         return [f"sae_binary_{index:05d}" for index in range(dim)]
-    prefix = "sae_mean" if feature_kind == "sae_mean" else "sae_max"
-    return [f"{prefix}_{index:05d}" for index in range(dim)]
+    if feature_kind != "sae_max":
+        raise ValueError(f"unsupported feature_kind for cache names: {feature_kind!r}")
+    return [f"sae_max_{index:05d}" for index in range(dim)]
 
 
 def sequence_features(sequence: str, *, kmer: int = 2) -> np.ndarray:

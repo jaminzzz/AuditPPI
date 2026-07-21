@@ -2,8 +2,8 @@
 
 Supported formal feature families:
 
-* ESM-C 6B layers 60 and 80: dense mean/max and SAE mean/max/binary.
-* ESM-2 650M final layer: dense mean/max and InterPLM SAE mean/max/binary.
+* ESM-C 6B layers 60 and 80: dense mean/max and SAE max/binary.
+* ESM-2 650M final layer: dense mean/max and InterPLM SAE max/binary.
 
 Model imports are deliberately lazy so the CLI can be inspected from any of
 the project's environments without loading GPU dependencies.
@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Sequence
 
-from conf.model import ESMC_LAYERS, MAX_RESIDUES
+from conf.model import ESM2_MAX_RESIDUES, ESMC_LAYERS, ESMC_MAX_RESIDUES
 from src.runtime import ensure_on_sys_path
 
 import torch
@@ -124,7 +124,7 @@ def extract_esmc_features(
     model_path: Path,
     sae_path: Path,
     layers: Sequence[int] = ESMC_LAYERS,
-    max_residues: int = MAX_RESIDUES,
+    max_residues: int = ESMC_MAX_RESIDUES,
     token_budget: int = 3072,
     sae_token_chunk: int = 256,
     device: str = "cuda",
@@ -159,7 +159,6 @@ def extract_esmc_features(
         prefix = f"esmc_l{layer}_"
         features[prefix + "dense_mean"] = _allocate_feature_matrix(len(manifest), dense_dim)
         features[prefix + "dense_max"] = _allocate_feature_matrix(len(manifest), dense_dim)
-        features[prefix + "sae_mean"] = _allocate_feature_matrix(len(manifest), sae_dim)
         features[prefix + "sae_max"] = _allocate_feature_matrix(len(manifest), sae_dim)
         features[prefix + "sae_binary"] = _allocate_feature_matrix(
             len(manifest), sae_dim, binary=True
@@ -202,7 +201,7 @@ def extract_esmc_features(
                     residue = hidden[batch_row][mask].float()
                     dense_mean, dense_max = dense_mean_max(residue)
                     sae_layer = sae.layers[str(layer)]
-                    sae_max, sae_mean, sae_binary = pool_esmc_topk_sae(
+                    sae_max, sae_binary = pool_esmc_topk_sae(
                         residue,
                         w_enc=sae_layer.W_enc,
                         b_dec=sae_layer.b_dec,
@@ -212,7 +211,6 @@ def extract_esmc_features(
                     prefix = f"esmc_l{layer}_"
                     features[prefix + "dense_mean"][manifest_idx].copy_(dense_mean.half().cpu())
                     features[prefix + "dense_max"][manifest_idx].copy_(dense_max.half().cpu())
-                    features[prefix + "sae_mean"][manifest_idx].copy_(sae_mean.half().cpu())
                     features[prefix + "sae_max"][manifest_idx].copy_(sae_max.half().cpu())
                     features[prefix + "sae_binary"][manifest_idx].copy_(sae_binary.cpu())
             done += len(indices)
@@ -249,7 +247,7 @@ def extract_esm2_features(
     model_name: str,
     interplm_root: Path,
     sae_checkpoint: Path,
-    max_residues: int = MAX_RESIDUES,
+    max_residues: int = ESM2_MAX_RESIDUES,
     token_budget: int = 8192,
     sae_token_chunk: int = 256,
     normalize_sae_features: bool = True,
@@ -275,7 +273,6 @@ def extract_esm2_features(
         prefix + "dense_max": _allocate_feature_matrix(
             len(manifest), int(model.config.hidden_size)
         ),
-        prefix + "sae_mean": _allocate_feature_matrix(len(manifest), int(sae.dict_size)),
         prefix + "sae_max": _allocate_feature_matrix(len(manifest), int(sae.dict_size)),
         prefix + "sae_binary": _allocate_feature_matrix(
             len(manifest), int(sae.dict_size), binary=True
@@ -307,7 +304,7 @@ def extract_esm2_features(
             def encode(chunk: torch.Tensor) -> torch.Tensor:
                 return sae.encode(chunk, normalize_features=normalize_sae_features)
 
-            sae_max, sae_mean, sae_binary = pool_relu_sae(
+            sae_max, sae_binary = pool_relu_sae(
                 residue,
                 encode=encode,
                 feature_dim=int(sae.dict_size),
@@ -315,7 +312,6 @@ def extract_esm2_features(
             )
             features[prefix + "dense_mean"][manifest_idx].copy_(dense_mean.half().cpu())
             features[prefix + "dense_max"][manifest_idx].copy_(dense_max.half().cpu())
-            features[prefix + "sae_mean"][manifest_idx].copy_(sae_mean.half().cpu())
             features[prefix + "sae_max"][manifest_idx].copy_(sae_max.half().cpu())
             features[prefix + "sae_binary"][manifest_idx].copy_(sae_binary.cpu())
         done += len(indices)

@@ -7,7 +7,7 @@ Consumes the MINT GeneralPPI ``Bernett`` split (via conf.paths.BERNETT_DIR):
 Each unique (cleaned) sequence is encoded once and written to BERNETT_SEQ_CACHE
 in the pooled-cache contract shared by the audit:
   - sequences / seq2idx
-  - esmc_mean / esmc_sae_max / esmc_sae_mean
+  - esmc_mean / esmc_sae_max
 
 Run with the E1 conda env (Biohub transformers fork). CSVs are read-only.
 
@@ -137,9 +137,8 @@ def main() -> None:
     assert k == ESMC_SAE_K, (k, ESMC_SAE_K)
     print(f"[sae] W_enc={tuple(w_enc.shape)} k={k}", flush=True)
 
-    def sae_pool(h: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def sae_pool(h: torch.Tensor) -> torch.Tensor:
         pooled_max = torch.zeros(dict_dim, device=h.device, dtype=torch.float32)
-        pooled_sum = torch.zeros(dict_dim, device=h.device, dtype=torch.float32)
         n_tokens = max(int(h.shape[0]), 1)
         chunk = max(1, args.sae_token_chunk)
         for start in range(0, n_tokens, chunk):
@@ -150,9 +149,8 @@ def main() -> None:
             vals, idx = pre.topk(k, dim=-1)
             flat_idx = idx.reshape(-1)
             flat_vals = vals.reshape(-1)
-            pooled_sum.scatter_add_(0, flat_idx, flat_vals)
             pooled_max.scatter_reduce_(0, flat_idx, flat_vals, reduce="amax", include_self=True)
-        return pooled_max, pooled_sum / n_tokens
+        return pooled_max
 
     @torch.inference_mode()
     def run_batch(batch_seqs: list[str]):
@@ -162,7 +160,7 @@ def main() -> None:
         out = model(**enc, output_hidden_states=True)
         h = out.hidden_states[args.layer]
         am = enc["attention_mask"].bool()
-        em, smax, smean = [], [], []
+        em, smax = [], []
         for i in range(h.size(0)):
             mask = am[i].clone()
             idxs = mask.nonzero(as_tuple=True)[0]
@@ -171,15 +169,13 @@ def main() -> None:
                 mask[idxs[-1]] = False
             hi = h[i][mask].float()
             em.append(hi.mean(0).half().cpu())
-            fmax, fmean = sae_pool(hi)
+            fmax = sae_pool(hi)
             smax.append(fmax.half().cpu())
-            smean.append(fmean.half().cpu())
-        return em, smax, smean
+        return em, smax
 
     order = sorted(range(len(seqs)), key=lambda i: len(seqs[i]))
     esmc_mean = [None] * len(seqs)
     sae_max = [None] * len(seqs)
-    sae_mean = [None] * len(seqs)
     i = 0
     done = 0
     t0 = time.time()
@@ -188,11 +184,10 @@ def main() -> None:
         bs = max(1, args.token_budget // max(seq_len, 1))
         idxs = order[i:i + bs]
         i += bs
-        em, smax, smean = run_batch([seqs[j] for j in idxs])
-        for j, a, b, c in zip(idxs, em, smax, smean):
+        em, smax = run_batch([seqs[j] for j in idxs])
+        for j, a, b in zip(idxs, em, smax):
             esmc_mean[j] = a
             sae_max[j] = b
-            sae_mean[j] = c
         done += len(idxs)
         if done % 512 < bs or done == len(seqs):
             rate = done / max(time.time() - t0, 1e-6)
@@ -203,7 +198,6 @@ def main() -> None:
         "seq2idx": seq2idx,
         "esmc_mean": torch.stack(esmc_mean),
         "esmc_sae_max": torch.stack(sae_max),
-        "esmc_sae_mean": torch.stack(sae_mean),
         "meta": {
             "dataset": "bernett",
             "model": "ESMC-6B", "layer": args.layer, "k": k, "dict": int(dict_dim),

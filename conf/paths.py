@@ -127,7 +127,7 @@ FEATURE_TABLE = FEATURE_TABLE_DIR / "uniref90_feature_table.parquet"
 #                      esmc/ vs esm2/ dir split -- the infix already disambiguates.
 #   * Layer         -> in-file key prefix, NOT the filename. Every cache on disk
 #                      today is single-layer ESM-C L60, stored under flat keys
-#                      ``esmc_mean`` / ``esmc_sae_max`` / ``esmc_sae_mean`` with the
+#                      ``esmc_mean`` / ``esmc_sae_max`` with the
 #                      layer recorded in meta{'layer': 60}. When a cache carries
 #                      multiple layers (the extractor default is layers=(60, 80)),
 #                      keys gain a layer prefix ``esmc_l60_*`` / ``esmc_l80_*`` to
@@ -162,8 +162,14 @@ PRING_FALLBACK_CACHES = (
 # here from results/audit_protein/{pring_participation,pic_essentiality}/ so the reusable cache
 # no longer sits beside the disposable xgboost outputs it feeds.
 PROTEIN_SAE_CACHES = SAE / "protein_caches"
-PRING_HUMAN_SAE_CACHE = PROTEIN_SAE_CACHES / "pring_human_esmc_sae_cache.pt"
-PIC_HUMAN_SAE_CACHE = PROTEIN_SAE_CACHES / "pic_human_esmc_sae_cache.pt"
+# v1 per-dataset caches (auditppi_protein_features_v1): every ESM-C L60/L80 and
+# ESM-2 L33 channel in one payload, sliced from the pooled seq caches. The
+# max1022 suffix pins the cross-backbone-comparable residue budget.
+PRING_HUMAN_SAE_CACHE = PROTEIN_SAE_CACHES / "pring_human_protein_features_max1022.pt"
+PIC_HUMAN_SAE_CACHE = PROTEIN_SAE_CACHES / "pic_human_protein_features_max1022.pt"
+# RAPPPID C3 endpoint cache. The C1/C2/C3 CSVs carry raw query/text sequences
+# (no protein ids), so this cache is keyed by sequence via seq2idx, not id2idx.
+C3_SAE_CACHE = PROTEIN_SAE_CACHES / "c3_protein_features_max1022.pt"
 
 # Stage 3: per-pair engineered feature matrices (was reps/esmc/). Renamed to
 # pair_caches to name its true granularity (protein PAIRS, not "representations").
@@ -293,7 +299,10 @@ PRING_CROSS_SPECIES = ("yeast", "ecoli", "arath")
 # {species: pooled ESM-C/SAE cache}; human reuses the pre-existing human cache.
 PRING_SPECIES_SAE_CACHES = {
     "human": PRING_HUMAN_SAE_CACHE,
-    **{sp: PROTEIN_SAE_CACHES / f"pring_{sp}_esmc_sae_cache.pt" for sp in PRING_CROSS_SPECIES},
+    **{
+        sp: PROTEIN_SAE_CACHES / f"pring_{sp}_protein_features_max1022.pt"
+        for sp in PRING_CROSS_SPECIES
+    },
 }
 
 # AlphaFold structures for the case-4365 analysis are the 14 PDBs already cached

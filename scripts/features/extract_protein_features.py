@@ -12,6 +12,11 @@ import os
 import subprocess
 from pathlib import Path
 
+from conf.model import (
+    ESM2_MAX_RESIDUES,
+    ESMC_MAX_RESIDUES,
+    ESMC_MAX_RESIDUES_COMPAT,
+)
 from conf.paths import (
     ESM2_650M_MODEL,
     ESM2_SAE_CKPT,
@@ -48,7 +53,16 @@ def main() -> None:
     parser.add_argument("--device-id", type=int, default=None)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="bf16")
-    parser.add_argument("--max-residues", type=int, default=1022)
+    parser.add_argument(
+        "--max-residues",
+        type=int,
+        default=None,
+        help=(
+            "residue truncation cap (BOS/EOS extra). "
+            f"Default: ESM-C={ESMC_MAX_RESIDUES} (use {ESMC_MAX_RESIDUES_COMPAT} for "
+            f"legacy-aligned ESM-C), ESM-2={ESM2_MAX_RESIDUES}."
+        ),
+    )
     parser.add_argument("--token-budget", type=int, default=None)
     parser.add_argument("--sae-token-chunk", type=int, default=256)
     parser.add_argument("--overwrite", action="store_true")
@@ -66,6 +80,11 @@ def main() -> None:
         default=True,
     )
     args = parser.parse_args()
+
+    if args.max_residues is None:
+        args.max_residues = (
+            ESMC_MAX_RESIDUES if args.backbone == "esmc" else ESM2_MAX_RESIDUES
+        )
 
     if args.device.startswith("cuda"):
         device_id = str(args.device_id) if args.device_id is not None else pick_gpu()
@@ -91,7 +110,7 @@ def main() -> None:
         manifest.id2idx = {pid: idx for pid, idx in manifest.id2idx.items() if idx < keep}
     print(
         f"[manifest] unique_sequences={len(manifest)} id_aliases={len(manifest.id2idx)} "
-        f"inputs={len(args.input)}",
+        f"inputs={len(args.input)} max_residues={args.max_residues} backbone={args.backbone}",
         flush=True,
     )
 

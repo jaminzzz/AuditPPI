@@ -35,15 +35,17 @@ from conf.paths import ESMC_MODEL, ESMC_SAE, PPI_DATA, RESULTS_MISC
 from conf.model import (
     ESMC_SAE_DEFAULT_LAYER, ESMC_SAE_AVAILABLE_LAYERS,
     ESMC_DIM, ESMC_SAE_DIM, ESMC_SAE_K,
+    ESMC_MAX_RESIDUES,
 )
 from src.runtime.device import pick_free_gpu
 
 MODEL = ESMC_MODEL
 SAE = ESMC_SAE
 DEFAULT_DATA_ROOT = PPI_DATA
-# NOTE: residue cap here is 2046 (PDB chains / AFDB domains can exceed the
-# standard 1022 pooled-cache budget), so this is intentionally NOT conf.MAX_RESIDUES.
-MAX_RESIDUES = 2046
+# Residue-level interface cache uses the ESM-C native window (2046 residues /
+# 2048 tokens). Distinct from the legacy pooled-cache alias conf.MAX_RESIDUES
+# (1022).
+MAX_RESIDUES = ESMC_MAX_RESIDUES
 
 THREE2ONE = {
     "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C",

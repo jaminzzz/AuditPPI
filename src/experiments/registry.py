@@ -45,6 +45,7 @@ from pathlib import Path
 from conf.paths import (
     BERNETT_DIR,
     BERNETT_SEQ_CACHE,
+    C3_SAE_CACHE,
     C3_TEST_CSV,
     C3_TRAIN_CSV,
     C3_VAL_CSV,
@@ -388,7 +389,9 @@ def _protein_experiments() -> list[Experiment]:
 def _pair_experiments() -> list[Experiment]:
     exps: list[Experiment] = []
 
-    # C3 endpoint-additive MLP + EBM, per rep. Read the C3 pair cache.
+    # C3 endpoint-additive MLP + EBM, per rep. The MLP now assembles endpoints on
+    # the fly from the C3 v1 protein cache (sequence-keyed, all backbone/layer/rep
+    # channels in one file); the EBM still reads the legacy per-rep pair cache.
     for rep in PAIR_REPS:
         exps.append(
             Experiment(
@@ -396,7 +399,7 @@ def _pair_experiments() -> list[Experiment]:
                 layer="pair",
                 script="scripts/audit_pair/run_c3_sae_endpoint_additive_mlp.py",
                 args=("--rep", rep),
-                inputs=_pair_cache_inputs(PAIR_CACHES, (rep,)),
+                inputs=(C3_SAE_CACHE,),
                 products=(RESULTS_PAIR / "c3_endpoint_additive_mlp_sae",),
             )
         )

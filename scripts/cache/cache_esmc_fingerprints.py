@@ -5,7 +5,6 @@ Run with the E1 conda env (Biohub transformers fork + xformers). For each unique
 sequence across the three C3 splits we run ESMC-6B once and store:
   - esmc_mean    [2560]  : mean-pool of raw hidden states at --layer (raw-rep baseline)
   - esmc_sae_max [16384] : max-pool of SAE features at --layer  (ECFP-like fingerprint)
-  - esmc_sae_mean[16384] : mean-pool of SAE features at --layer
 
 Default --layer is ESMC_SAE_DEFAULT_LAYER (60); pass --layer 80 for the other
 checkpoint layer. Non-default layers write a layer-tagged path so they do not
@@ -139,9 +138,8 @@ def main() -> None:
     assert k == ESMC_SAE_K, (k, ESMC_SAE_K)
     print(f"[sae] W_enc={tuple(w_enc.shape)} k={k}", flush=True)
 
-    def sae_pool(h: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def sae_pool(h: torch.Tensor) -> torch.Tensor:
         pooled_max = torch.zeros(dict_dim, device=h.device, dtype=torch.float32)
-        pooled_sum = torch.zeros(dict_dim, device=h.device, dtype=torch.float32)
         n_tokens = max(int(h.shape[0]), 1)
         chunk = max(1, args.sae_token_chunk)
         for start in range(0, n_tokens, chunk):
@@ -152,9 +150,8 @@ def main() -> None:
             vals, idx = pre.topk(k, dim=-1)
             flat_idx = idx.reshape(-1)
             flat_vals = vals.reshape(-1)
-            pooled_sum.scatter_add_(0, flat_idx, flat_vals)
             pooled_max.scatter_reduce_(0, flat_idx, flat_vals, reduce="amax", include_self=True)
-        return pooled_max, pooled_sum / n_tokens
+        return pooled_max
 
     @torch.inference_mode()
     def run_batch(batch_seqs: list[str]):
@@ -164,7 +161,7 @@ def main() -> None:
         out = model(**enc, output_hidden_states=args.store_all_hidden_states)
         h = out.hidden_states[args.layer] if args.store_all_hidden_states else out.last_hidden_state
         am = enc["attention_mask"].bool()
-        em, smax, smean = [], [], []
+        em, smax = [], []
         for i in range(h.size(0)):
             mask = am[i].clone()
             idxs = mask.nonzero(as_tuple=True)[0]
@@ -174,16 +171,14 @@ def main() -> None:
                 mask[idxs[-1]] = False
             hi = h[i][mask].float()                        # [Lr, 2560]
             em.append(hi.mean(0).half().cpu())
-            fmax, fmean = sae_pool(hi)
+            fmax = sae_pool(hi)
             smax.append(fmax.half().cpu())
-            smean.append(fmean.half().cpu())
-        return em, smax, smean
+        return em, smax
 
     # ---- length-sorted, token-budget batching ----
     order = sorted(range(len(seqs)), key=lambda i: len(seqs[i]))
     esmc_mean = [None] * len(seqs)
     sae_max = [None] * len(seqs)
-    sae_mean = [None] * len(seqs)
     i = 0
     done = 0
     t0 = time.time()
@@ -192,11 +187,10 @@ def main() -> None:
         bs = max(1, args.token_budget // max(seq_len, 1))
         idxs = order[i:i + bs]
         i += bs
-        em, smax, smean = run_batch([seqs[j] for j in idxs])
-        for j, a, b, c in zip(idxs, em, smax, smean):
+        em, smax = run_batch([seqs[j] for j in idxs])
+        for j, a, b in zip(idxs, em, smax):
             esmc_mean[j] = a
             sae_max[j] = b
-            sae_mean[j] = c
         done += len(idxs)
         if done % 512 < bs:
             rate = done / max(time.time() - t0, 1e-6)
@@ -207,7 +201,6 @@ def main() -> None:
         "seq2idx": {s: i for i, s in enumerate(seqs)},
         "esmc_mean": torch.stack(esmc_mean),
         "esmc_sae_max": torch.stack(sae_max),
-        "esmc_sae_mean": torch.stack(sae_mean),
         "meta": {
             "dataset": "rapppid-c3",
             "model": "ESMC-6B", "layer": args.layer, "k": k, "dict": int(dict_dim),

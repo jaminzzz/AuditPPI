@@ -28,6 +28,12 @@ from conf.paths import (
     PROTEIN_SAE_CACHES as PRING_CACHE_DIR,
     PRING_TRAIN_SPECIES as TRAIN_SPECIES,
 )
+from conf.model import (
+    CACHE_MAX_RESIDUES_DEFAULT,
+    DEFAULT_BACKBONE,
+    cache_max_residues_tag,
+    resolve_backbone_layer,
+)
 from src.data.pring_graph import ParticipationLabels
 from src.features.protein_cache import representation_matrix
 from src.features.sequence_composition import (
@@ -112,6 +118,21 @@ def best_existing_fallback_cache() -> Optional[Path]:
     return None
 
 
+def _cache_row_count(cache: Mapping) -> Optional[int]:
+    """Row count of a pooled cache across v1 and legacy schemas.
+
+    v1 caches carry a ``features`` subdict (any channel shares the row count);
+    legacy flat caches expose ``esmc_mean`` directly.
+    """
+    features = cache.get("features")
+    if features:
+        first = next(iter(features.values()))
+        return int(first.shape[0])
+    if "esmc_mean" in cache:
+        return int(cache["esmc_mean"].shape[0])
+    return None
+
+
 def cache_id_map(cache: Mapping) -> Mapping[str, int]:
     """Return the first supported protein-id lookup mapping in a cache."""
     for key in ("uniprotid2idx", "unprotid2idx", "protein_id2idx", "id2idx"):
@@ -163,6 +184,8 @@ def cached_feature_matrix(
     sequences: Mapping[str, str],
     cache: Mapping,
     feature_kind: str,
+    layer: Optional[int] = None,
+    backbone: str = DEFAULT_BACKBONE,
 ) -> np.ndarray:
     """Assemble one pooled feature matrix for the requested proteins.
 
@@ -170,7 +193,8 @@ def cached_feature_matrix(
     representation -> matrix switch is shared with the pair/protein primitives via
     :func:`src.features.protein_cache.representation_matrix` (thresholding
     commutes with the row ``index_select``, so this stays bit-identical to the
-    old per-kind switch).
+    old per-kind switch). ``backbone``/``layer`` select the v1 channel family
+    (``layer=None`` picks the backbone default).
     """
     import torch
 
@@ -185,7 +209,7 @@ def cached_feature_matrix(
             raise KeyError(f"protein {protein_id!r} is not present in the feature cache")
         rows.append(row)
 
-    matrix = representation_matrix(cache, feature_kind)
+    matrix = representation_matrix(cache, feature_kind, layer, backbone)
     indices = torch.as_tensor(rows, dtype=torch.long)
     output = matrix.index_select(0, indices)
     return output.float().numpy().astype(np.float32, copy=False)
@@ -202,8 +226,16 @@ def prepare_features(
     val_frac: float,
     seed: int,
     cache_path: Optional[Path],
+    layer: Optional[int] = None,
+    backbone: str = DEFAULT_BACKBONE,
 ) -> FeaturePack:
-    """Prepare aligned train/validation/test participation feature matrices."""
+    """Prepare aligned train/validation/test participation feature matrices.
+
+    ``backbone`` selects the pLM line (``esmc`` / ``esm2``) and ``layer`` the
+    layer within it (``None`` = that backbone's default: ESM-C 60, ESM-2 33) for
+    v1 feature caches; both are ignored for ``sequence_basic`` and for legacy
+    single-layer flat caches.
+    """
     feature_kind = normalize_feature_kind(feature_kind)
     if feature_kind == "sequence_basic":
         train_pool = sorted(candidate_train)
@@ -262,17 +294,19 @@ def prepare_features(
             f"val={len(val_ids)} test={len(test_ids)}"
         )
 
-    train_x = cached_feature_matrix(train_ids, seqs, cache, feature_kind)
-    val_x = cached_feature_matrix(val_ids, seqs, cache, feature_kind)
-    test_x = cached_feature_matrix(test_ids, seqs, cache, feature_kind)
+    train_x = cached_feature_matrix(train_ids, seqs, cache, feature_kind, layer, backbone)
+    val_x = cached_feature_matrix(val_ids, seqs, cache, feature_kind, layer, backbone)
+    test_x = cached_feature_matrix(test_ids, seqs, cache, feature_kind, layer, backbone)
     names = cache_feature_names(feature_kind, train_x.shape[1])
     info = {
         "kind": feature_kind,
+        "backbone": backbone,
+        "layer": resolve_backbone_layer(backbone, layer),
         "dim": int(train_x.shape[1]),
         "cache_path": str(resolved_cache),
         "cache_required": True,
         "cache_keys": sorted(str(key) for key in cache.keys()),
-        "n_cache_rows": int(cache["esmc_mean"].shape[0]) if "esmc_mean" in cache else None,
+        "n_cache_rows": _cache_row_count(cache),
         "n_train_pool_with_features": len(train_pool),
         "n_test_with_features": len(test_ids),
         "missing_train_features": len(missing_train),
@@ -294,8 +328,14 @@ def features_from_cache(
     feature_kind: str,
     kmer: int,
     cache: Optional[Mapping],
+    layer: Optional[int] = None,
+    backbone: str = DEFAULT_BACKBONE,
 ) -> Tuple[np.ndarray, List[str], List[str]]:
-    """Build a matrix while dropping IDs absent from a pooled cache."""
+    """Build a matrix while dropping IDs absent from a pooled cache.
+
+    ``layer``/``backbone`` select the v1 feature channel (``layer=None`` uses the
+    backbone default: ESM-C 60, ESM-2 33).
+    """
     if feature_kind == "sequence_basic":
         kept = [protein_id for protein_id in protein_ids if protein_id in sequences]
         missing = [protein_id for protein_id in protein_ids if protein_id not in sequences]
@@ -310,19 +350,28 @@ def features_from_cache(
     kept, missing, _ = filter_cached_ids(protein_ids, sequences, cache)
     kept = sorted(kept)
     matrix = (
-        cached_feature_matrix(kept, sequences, cache, feature_kind)
+        cached_feature_matrix(kept, sequences, cache, feature_kind, layer, backbone)
         if kept
         else np.empty((0, 0), np.float32)
     )
     return matrix, kept, missing
 
 
-def species_cache_path(species: str) -> Path:
-    """Return the default pooled feature-cache path for one PRING species."""
+def species_cache_path(
+    species: str, max_residues: int = CACHE_MAX_RESIDUES_DEFAULT
+) -> Path:
+    """Return the v1 protein feature-cache path for one PRING species.
+
+    ``max_residues`` selects the on-disk length variant (``max1022`` /
+    ``max2046``); the default is the cross-backbone-comparable 1022 slice. Human
+    reuses :data:`DEFAULT_PRING_CACHE` only at the default length; other lengths
+    resolve by the shared ``pring_{species}_protein_features_{tag}.pt`` pattern.
+    """
     species = species.lower()
-    if species == TRAIN_SPECIES:
+    tag = cache_max_residues_tag(max_residues)
+    if species == TRAIN_SPECIES and max_residues == CACHE_MAX_RESIDUES_DEFAULT:
         return DEFAULT_PRING_CACHE
-    return PRING_CACHE_DIR / f"pring_{species}_esmc_sae_cache.pt"
+    return PRING_CACHE_DIR / f"pring_{species}_protein_features_{tag}.pt"
 
 
 __all__ = [
