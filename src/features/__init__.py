@@ -11,7 +11,7 @@ Module map
 - ``pairs`` — pair construction + ``auditppi_protein_features_v1`` cache load
   (:func:`~src.features.pairs.load_protein_feature_cache`).
 - ``protein_cache`` — seq-keyed pooled fingerprint read
-  (:func:`~src.features.protein_cache.load_pooled_cache`).
+  (:func:`~src.features.protein_cache.protein_feature_rows`).
 - ``pooled_assembly`` — id-first pooled assembly + degree splits
   (:func:`~src.features.pooled_assembly.load_pooled_payload`).
 - ``sequence_composition`` / ``feature_selection`` / ``sampling`` — composition
@@ -28,7 +28,6 @@ from .manifest import ProteinManifest, load_protein_manifest
 from .pairs import PAIR_MODES, pair_features
 from .protein_cache import (
     REPRESENTATIONS,
-    load_pooled_cache,
     pair_feature_rows,
     protein_feature_rows,
     rep_dim,
@@ -39,7 +38,6 @@ __all__ = [
     "PAIR_MODES",
     "ProteinManifest",
     "REPRESENTATIONS",
-    "load_pooled_cache",
     "load_protein_manifest",
     "normalize_sequence",
     "pair_features",

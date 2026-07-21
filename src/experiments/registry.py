@@ -283,7 +283,8 @@ def _prep_experiments() -> list[Experiment]:
 def _protein_experiments() -> list[Experiment]:
     exps: list[Experiment] = []
 
-    # C3 high-participation ("hubness") classifier -- reads the C3 seq cache.
+    # C3 high-participation ("hubness") classifier -- assembles per-protein rows
+    # on the fly from the C3 v1 protein cache (seq2idx gather, backbone/layer axes).
     for rep in PROTEIN_REPS:
         exps.append(
             Experiment(
@@ -291,13 +292,13 @@ def _protein_experiments() -> list[Experiment]:
                 layer="protein",
                 script="scripts/audit_protein/run_c3_high_participation_classifier.py",
                 args=("--rep", rep),
-                inputs=(ESMC_DEFAULT_SEQ_CACHE,),
+                inputs=(C3_SAE_CACHE,),
                 products=(RESULTS_PROTEIN / "c3_high_participation",),
             )
         )
 
-    # C3 sequence participation oracle w/ feature importance -- needs the SAE
-    # feature table too (annotation join).
+    # C3 sequence participation oracle w/ feature importance -- reads the C3 v1
+    # protein cache plus the SAE feature table (annotation join).
     for rep in PROTEIN_REPS:
         exps.append(
             Experiment(
@@ -305,13 +306,14 @@ def _protein_experiments() -> list[Experiment]:
                 layer="protein",
                 script="scripts/audit_protein/run_c3_seq_participation_oracle_with_importance.py",
                 args=("--rep", rep),
-                inputs=(ESMC_DEFAULT_SEQ_CACHE, FEATURE_TABLE),
+                inputs=(C3_SAE_CACHE, FEATURE_TABLE),
                 products=(RESULTS_PROTEIN / "c3_seq_participation_oracle",),
             )
         )
 
-    # Generic participation oracle across the two protein families it supports.
-    _family_cache = {"c3": ESMC_DEFAULT_SEQ_CACHE, "cross_species": CROSS_SPECIES_SEQ_CACHE}
+    # Generic participation oracle across the two protein families it supports;
+    # each family reads its own v1 protein cache (backbone/layer axes).
+    _family_cache = {"c3": C3_SAE_CACHE, "cross_species": CROSS_SPECIES_SAE_CACHE}
     for family, cache in _family_cache.items():
         for rep in PROTEIN_REPS:
             exps.append(

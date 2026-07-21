@@ -18,17 +18,25 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 
-from conf.model import DEFAULT_SEED, REPRESENTATIONS
-from conf.paths import RESULTS_PROTEIN, FEATURE_TABLE, POOLED_SEQ_CACHES as CACHE
+from conf.model import (
+    BACKBONE_LAYERS,
+    BACKBONES,
+    DEFAULT_BACKBONE,
+    DEFAULT_SEED,
+    REPRESENTATIONS,
+    resolve_backbone_layer,
+)
+from conf.paths import RESULTS_PROTEIN, FEATURE_TABLE, PPI_PREDICTION_CACHES as CACHE
 from src.runtime import seed_all
 from src.eval import evaluate_scorer
 from src.eval.metrics import participation_t, safe_spearman
 from src.experiments.results import dump_experiment
 from src.models.estimators.xgboost import fit_xgb_regressor
 from src.data import pairs as D
-from src.features.protein_cache import load_pooled_cache, protein_feature_rows
+from src.features.pairs import load_protein_feature_cache
+from src.features.protein_cache import protein_feature_rows
 
 OUT_DIR = RESULTS_PROTEIN / "c3_seq_participation_oracle"
 
@@ -136,21 +144,37 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rep", choices=REPRESENTATIONS, default="sae_max")
     ap.add_argument("--family", choices=["c3"], default="c3")
+    ap.add_argument(
+        "--backbone",
+        choices=BACKBONES,
+        default=DEFAULT_BACKBONE,
+        help="Backbone family to read from the v1 feature cache (esmc or esm2).",
+    )
+    ap.add_argument(
+        "--layer",
+        type=int,
+        default=None,
+        choices=sorted({layer for layers in BACKBONE_LAYERS.values() for layer in layers}),
+        help="Backbone layer; defaults to the backbone's default (ESM-C 60, ESM-2 33).",
+    )
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     ap.add_argument("--holdout-frac", type=float, default=0.1)
     ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
     args = ap.parse_args()
+    args.layer = resolve_backbone_layer(args.backbone, args.layer)
 
     # Global RNG seed for the whole run; the holdout permutation below draws from
     # its own local default_rng(args.seed) stream and is unaffected.
     seed_all(args.seed)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    cache = load_pooled_cache(CACHE[args.family])
+    cache = load_protein_feature_cache(CACHE[args.family])
 
     t_train, deg_train, train_seqs = train_target_t(args.family)
     train_ids = list(t_train.keys())
-    X, kept = protein_feature_rows(train_ids, train_seqs, cache, args.rep)
+    X, kept = protein_feature_rows(
+        train_ids, train_seqs, cache, args.rep, layer=args.layer, backbone=args.backbone
+    )
     if X is None:
         raise RuntimeError("no cached train+val proteins")
     y = np.asarray([t_train[p] for p in kept], dtype=np.float32)
@@ -172,7 +196,9 @@ def main() -> None:
 
     test_bench = D.load_benchmark(TEST[args.family], attach_seqs=True)
     test_ids = sorted({p for pair in test_bench.pairs for p in pair})
-    Xte, kept_te = protein_feature_rows(test_ids, test_bench.seqs, cache, args.rep)
+    Xte, kept_te = protein_feature_rows(
+        test_ids, test_bench.seqs, cache, args.rep, layer=args.layer, backbone=args.backbone
+    )
     if Xte is None:
         raise RuntimeError("no cached test proteins")
     pred = np.clip(reg.predict(Xte), 0.0, 1.0)
@@ -200,7 +226,7 @@ def main() -> None:
         ),
         "n_deg_ge3": int(len(deg3)),
         "mae": float(mean_absolute_error(true_test, pred_test)),
-        "rmse": float(mean_squared_error(true_test, pred_test, squared=False)),
+        "rmse": float(root_mean_squared_error(true_test, pred_test)),
         "degree_weighted_mae": float(np.average(np.abs(true_test - pred_test), weights=deg_test_arr)),
         "true_t_mean": float(true_test.mean()),
         "that_mean": float(pred_test.mean()),
@@ -214,11 +240,13 @@ def main() -> None:
     imp["abs_train_weighted_corr_with_t"] = imp["train_weighted_corr_with_t"].abs()
     imp = imp.sort_values(["gain", "total_gain", "weight"], ascending=False)
 
-    stem = f"seq_participation_oracle_{args.rep}_{args.family}"
+    stem = f"seq_participation_oracle_{args.rep}_{args.family}_{args.backbone}_l{args.layer}"
     summary = {
         **pair_metrics,
         "family": args.family,
         "rep": args.rep,
+        "backbone": args.backbone,
+        "layer": args.layer,
         "train_splits": TRAINVAL[args.family],
         "test_split": TEST[args.family],
         "n_train_proteins": int(len(tr)),

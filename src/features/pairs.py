@@ -78,8 +78,7 @@ def load_protein_feature_cache(path: Path) -> dict[str, Any]:
     """Load an ``auditppi_protein_features_v1`` protein feature cache.
 
     Distinct from :func:`src.features.pooled_assembly.load_pooled_payload` (pooled
-    fingerprint caches with optional id maps) and
-    :func:`src.features.protein_cache.load_pooled_cache` (filtered pooled keys).
+    fingerprint caches with optional id maps).
     """
     payload = torch.load(path, map_location="cpu", weights_only=False)
     if payload.get("format") != "auditppi_protein_features_v1":

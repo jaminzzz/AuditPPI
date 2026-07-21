@@ -26,15 +26,23 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-from conf.paths import RESULTS_PROTEIN, POOLED_SEQ_CACHES as CACHE
+from conf.paths import RESULTS_PROTEIN, PPI_PREDICTION_CACHES as CACHE
 from conf.audit import PARTICIPATION_QUANTILE
-from conf.model import DEFAULT_SEED, REPRESENTATIONS
+from conf.model import (
+    BACKBONE_LAYERS,
+    BACKBONES,
+    DEFAULT_BACKBONE,
+    DEFAULT_SEED,
+    REPRESENTATIONS,
+    resolve_backbone_layer,
+)
 from src.eval.metrics import participation_t
 from src.eval.classification import binary_classification_metrics
 from src.experiments.results import dump_experiment
 from src.models.estimators.xgboost import fit_xgb_classifier
 from src.data import pairs as D
-from src.features.protein_cache import load_pooled_cache, protein_feature_rows
+from src.features.pairs import load_protein_feature_cache
+from src.features.protein_cache import protein_feature_rows
 
 
 OUT_DIR = RESULTS_PROTEIN / "c3_high_participation"
@@ -55,14 +63,14 @@ def node_metrics(ids: Sequence[str], y: np.ndarray, p: np.ndarray, t: Mapping[st
     return metrics
 
 
-def split_tables(rep: str):
-    cache = load_pooled_cache(CACHE["c3"])
+def split_tables(rep: str, *, backbone: str, layer: int):
+    cache = load_protein_feature_cache(CACHE["c3"])
     out = {}
     for split in ("train", "val", "test"):
         bench = D.load_benchmark(f"c3:{split}", attach_seqs=True)
         t, degree = participation_t(bench.pairs, bench.labels)
         ids = sorted(t)
-        X, kept = protein_feature_rows(ids, bench.seqs, cache, rep)
+        X, kept = protein_feature_rows(ids, bench.seqs, cache, rep, layer=layer, backbone=backbone)
         if X is None:
             raise RuntimeError(f"no cached proteins for c3:{split} rep={rep}")
         out[split] = {
@@ -90,6 +98,19 @@ def write_predictions(path: Path, *, rows: Mapping[str, dict], pred: Mapping[str
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rep", choices=REPRESENTATIONS, default="sae_max")
+    ap.add_argument(
+        "--backbone",
+        choices=BACKBONES,
+        default=DEFAULT_BACKBONE,
+        help="Backbone family to read from the v1 feature cache (esmc or esm2).",
+    )
+    ap.add_argument(
+        "--layer",
+        type=int,
+        default=None,
+        choices=sorted({layer for layers in BACKBONE_LAYERS.values() for layer in layers}),
+        help="Backbone layer; defaults to the backbone's default (ESM-C 60, ESM-2 33).",
+    )
     ap.add_argument("--quantile", type=float, default=PARTICIPATION_QUANTILE)
     ap.add_argument("--threshold-t", type=float, default=None)
     ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
@@ -100,9 +121,10 @@ def main() -> None:
     ap.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     ap.add_argument("--early-stopping-rounds", type=int, default=200)
     args = ap.parse_args()
+    args.layer = resolve_backbone_layer(args.backbone, args.layer)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    rows = split_tables(args.rep)
+    rows = split_tables(args.rep, backbone=args.backbone, layer=args.layer)
     train_t = np.asarray([rows["train"]["t"][pid] for pid in rows["train"]["ids"]], dtype=float)
     if args.threshold_t is None:
         threshold = float(np.quantile(train_t, args.quantile))
@@ -134,6 +156,8 @@ def main() -> None:
         "task": "c3_high_participation_protein_classification",
         "target": "high_t = 1[t_split(p) >= threshold_t]",
         "rep": args.rep,
+        "backbone": args.backbone,
+        "layer": args.layer,
         "label_mode": label_mode,
         "quantile": args.quantile,
         "threshold_t": threshold,
@@ -166,7 +190,7 @@ def main() -> None:
         suffix = f"q{int(args.quantile * 100):02d}"
     else:
         suffix = f"t_ge_{str(threshold).replace('.', 'p')}"
-    stem = f"c3_{args.rep}_high_t_{suffix}_xgboost"
+    stem = f"c3_{args.rep}_{args.backbone}_l{args.layer}_high_t_{suffix}_xgboost"
     result_path = args.out_dir / f"{stem}.json"
     dump_experiment(
         result_path,

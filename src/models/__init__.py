@@ -1,17 +1,7 @@
-"""Model architectures and estimator integrations used by AuditPPI."""
+"""Model architectures and estimator integrations used by AuditPPI.
 
-from .registry import (
-    ARCHITECTURES,
-    ESTIMATORS,
-    build_architecture,
-    get_architecture_class,
-    get_estimator_factory,
-)
-
-__all__ = [
-    "ARCHITECTURES",
-    "ESTIMATORS",
-    "build_architecture",
-    "get_architecture_class",
-    "get_estimator_factory",
-]
+Consumers import concrete fitters/classes directly from their submodules
+(e.g. ``from src.models.estimators.xgboost import fit_xgb_classifier`` or
+``from src.models.architectures.endpoint_mlp import EndpointMLP``); there is no
+name-indirection layer.
+"""

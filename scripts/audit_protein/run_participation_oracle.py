@@ -19,13 +19,20 @@ from pathlib import Path
 
 import numpy as np
 
-from conf.model import DEFAULT_SEED
-from conf.paths import POOLED_SEQ_CACHES as CACHE, RESULTS_MISC
+from conf.model import (
+    BACKBONE_LAYERS,
+    BACKBONES,
+    DEFAULT_BACKBONE,
+    DEFAULT_SEED,
+    resolve_backbone_layer,
+)
+from conf.paths import PPI_PREDICTION_CACHES as CACHE, RESULTS_MISC
 from src.data import pairs as benchmark_data
 from src.eval import evaluate_scorer
 from src.eval.metrics import participation_t, safe_spearman
 from src.experiments.results import dump_experiment
-from src.features.protein_cache import load_pooled_cache, protein_feature_rows
+from src.features.pairs import load_protein_feature_cache
+from src.features.protein_cache import protein_feature_rows
 from src.models.estimators.xgboost import fit_xgb_regressor
 
 # Default write dir preserved byte-identically from the pre-refactor predictor
@@ -89,6 +96,8 @@ def run_participation_oracle(
     *,
     family: str = "c3",
     rep: str = "sae_max",
+    backbone: str = DEFAULT_BACKBONE,
+    layer: int | None = None,
     seed: int = DEFAULT_SEED,
     holdout_fraction: float = 0.1,
     out_dir: Path = OUT_DIR,
@@ -97,10 +106,13 @@ def run_participation_oracle(
     """Train a sequence-only ``t_hat(p)`` predictor and score pairs by endpoint minimum."""
     if family not in TEST:
         raise ValueError(f"unknown family {family!r}; choose from {tuple(TEST)}")
-    cache = load_pooled_cache(CACHE[family])
+    layer = resolve_backbone_layer(backbone, layer)
+    cache = load_protein_feature_cache(CACHE[family])
     train_t, train_degree, train_sequences = train_target_t(family)
     train_ids = list(train_t)
-    train_x, kept_train = protein_feature_rows(train_ids, train_sequences, cache, rep)
+    train_x, kept_train = protein_feature_rows(
+        train_ids, train_sequences, cache, rep, layer=layer, backbone=backbone
+    )
     if train_x is None:
         raise RuntimeError(f"no cached training proteins for {family}/{rep}")
     targets = np.asarray([train_t[protein_id] for protein_id in kept_train], dtype=np.float32)
@@ -115,7 +127,9 @@ def run_participation_oracle(
 
     test_benchmark = benchmark_data.load_benchmark(TEST[family], attach_seqs=True)
     test_ids = sorted(test_benchmark.protein_ids)
-    test_x, kept_test = protein_feature_rows(test_ids, test_benchmark.seqs, cache, rep)
+    test_x, kept_test = protein_feature_rows(
+        test_ids, test_benchmark.seqs, cache, rep, layer=layer, backbone=backbone
+    )
     if test_x is None:
         raise RuntimeError(f"no cached test proteins for {family}/{rep}")
     predictions = np.clip(model.predict(test_x), 0.0, 1.0)
@@ -149,6 +163,8 @@ def run_participation_oracle(
             "lift_over_oracle_auprc": round(result["auprc"] - oracle_result["auprc"], 4),
             "family": family,
             "rep": rep,
+            "backbone": backbone,
+            "layer": layer,
             "train_splits": list(TRAINVAL[family]),
             "test_split": TEST[family],
             "n_train_proteins": int(len(train_indices)),
@@ -167,7 +183,7 @@ def run_participation_oracle(
     )
     if write:
         out_dir.mkdir(parents=True, exist_ok=True)
-        output_path = out_dir / f"seq_participation_oracle_{rep}_{family}.json"
+        output_path = out_dir / f"seq_participation_oracle_{rep}_{family}_{backbone}_l{layer}.json"
         dump_experiment(
             output_path,
             task="protein.participation_oracle",
@@ -197,11 +213,31 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--family", default="c3", choices=["c3", "cross_species"])
     ap.add_argument("--rep", default="sae_max", choices=["sae_max", "binary", "esmc_mean"])
+    ap.add_argument(
+        "--backbone",
+        choices=BACKBONES,
+        default=DEFAULT_BACKBONE,
+        help="Backbone family to read from the v1 feature cache (esmc or esm2).",
+    )
+    ap.add_argument(
+        "--layer",
+        type=int,
+        default=None,
+        choices=sorted({layer for layers in BACKBONE_LAYERS.values() for layer in layers}),
+        help="Backbone layer; defaults to the backbone's default (ESM-C 60, ESM-2 33).",
+    )
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     ap.add_argument("--no-write", action="store_true")
     args = ap.parse_args()
 
-    run_participation_oracle(family=args.family, rep=args.rep, seed=args.seed, write=not args.no_write)
+    run_participation_oracle(
+        family=args.family,
+        rep=args.rep,
+        backbone=args.backbone,
+        layer=args.layer,
+        seed=args.seed,
+        write=not args.no_write,
+    )
 
 
 if __name__ == "__main__":

@@ -1,20 +1,10 @@
 """Shared accessor for pooled per-protein feature caches.
 
-A *pooled cache* (produced by ``scripts/cache/cache_esmc_fingerprints.py`` and
-friends) is a ``torch.save`` payload with at least::
-
-    seq2idx       dict[str, int]   sequence string -> row index
-    esmc_sae_max  Tensor [N, ESMC_SAE_DIM]   pooled SAE max  (the SAE channel)
-    esmc_mean     Tensor [N, ESMC_DIM]       pooled dense ESM-C mean
-
-Older on-disk caches may still contain ``esmc_sae_mean``; that channel is no
-longer part of the formal feature contract and is ignored by this reader.
-
 Both the fingerprint baseline (``src.ppi_fingerprint``) and the participation
-oracle scripts previously each re-implemented the cache load, the
-representation -> matrix switch, and the id/sequence -> row assembly. That logic
-now lives here once; the id-keyed pooled assembly in
-``src.features.pooled_assembly`` reuses the representation switch too.
+oracle scripts previously each re-implemented the representation -> matrix
+switch and the id/sequence -> row assembly. That logic now lives here once; the
+id-keyed pooled assembly in ``src.features.pooled_assembly`` reuses the
+representation switch too.
 
 Import-time torch-free
 ----------------------
@@ -26,7 +16,6 @@ ppi_fingerprint package test pins.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -35,26 +24,11 @@ from conf.model import (
     BACKBONE_DENSE_DIM,
     BACKBONE_SAE_DIM,
     DEFAULT_BACKBONE,
-    ESMC_DIM,
-    ESMC_SAE_DIM,
     REPRESENTATIONS,
     SAE_BINARY_THRESHOLD,
     feature_cache_key,
     resolve_backbone_layer,
 )
-
-# Keys picked out of a pooled cache payload (the rest of the file is ignored).
-# ``esmc_sae_mean`` is intentionally absent: new extracts do not write it, and
-# consumers only use max / binary / dense-mean.
-POOLED_CACHE_KEYS = ("seq2idx", "esmc_mean", "esmc_sae_max")
-
-
-def load_pooled_cache(path: Path, *, keys: Tuple[str, ...] = POOLED_CACHE_KEYS) -> Dict:
-    """Read a per-protein pooled cache -> ``{seq2idx, esmc_mean, esmc_sae_max}``."""
-    import torch
-
-    payload = torch.load(path, map_location="cpu", weights_only=False)
-    return {key: payload[key] for key in keys}
 
 
 def rep_dim(rep: str, backbone: str = DEFAULT_BACKBONE) -> int:
@@ -193,9 +167,7 @@ def pair_feature_rows(
 
 
 __all__ = [
-    "POOLED_CACHE_KEYS",
     "REPRESENTATIONS",
-    "load_pooled_cache",
     "pair_feature_rows",
     "protein_feature_rows",
     "rep_dim",

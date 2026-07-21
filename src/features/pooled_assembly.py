@@ -8,8 +8,7 @@ primitives): both share the representation -> matrix switch via
 :func:`~src.features.protein_cache.representation_matrix`.
 :func:`load_pooled_payload` loads the *whole* payload (it needs the
 ``uniprotid2idx`` maps and uses mmap), so it stays distinct from
-``protein_cache.load_pooled_cache`` (which filters to the four pooled tensor
-keys) and from :func:`src.features.pairs.load_protein_feature_cache` (the formal
+:func:`src.features.pairs.load_protein_feature_cache` (the formal
 ``auditppi_protein_features_v1`` writer format).
 """
 
@@ -98,9 +97,7 @@ def load_pooled_payload(path: Path) -> dict:
     """Load a full pooled fingerprint cache on CPU (mmap when torch supports it).
 
     Returns the entire payload so callers can use id maps (``uniprotid2idx``,
-    …) in addition to the pooled tensors. Prefer
-    :func:`src.features.protein_cache.load_pooled_cache` when only the four
-    pooled keys are needed.
+    …) in addition to the pooled tensors.
     """
     import torch
 
@@ -375,14 +372,9 @@ def species_cache_path(
 
 
 __all__ = [
-    "FeaturePack",
-    "best_existing_fallback_cache",
     "cache_id_map",
-    "cached_feature_matrix",
     "features_from_cache",
-    "filter_cached_ids",
     "load_pooled_payload",
-    "lookup_cache_index",
     "prepare_features",
     "species_cache_path",
     "stratified_degree_split",
