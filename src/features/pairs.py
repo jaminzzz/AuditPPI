@@ -141,6 +141,59 @@ def load_pair_indices(
     )
 
 
+PAIR_INDEX_FORMAT = "auditppi_pair_index_v1"
+
+
+def save_pair_index_cache(
+    path: Path,
+    *,
+    rows_a: torch.Tensor,
+    rows_b: torch.Tensor,
+    labels: torch.Tensor,
+    kept_pair_indices: list[int],
+    n_total: int,
+    source_cache: str,
+    source_pairs: str,
+    pair_key: str,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Write a lightweight pair-index cache (row indices + labels, no features).
+
+    The payload stores only the per-pair endpoint *row indices* into a protein
+    feature cache plus the labels and provenance -- never any materialized
+    feature vectors. One index cache therefore serves every ``(backbone, layer,
+    rep)`` channel and every pair mode: a consumer loads it, then gathers
+    ``matrix.index_select(0, rows_a/rows_b)`` from whichever channel it wants.
+    ``kept_pair_indices`` preserves the original CSV row order so downstream
+    row-aligned tables (e.g. the C3 pair-id alignment parquet) line up.
+    """
+    if path.exists() and not overwrite:
+        raise FileExistsError(f"output exists: {path}; pass --overwrite to replace it")
+    payload: dict[str, Any] = {
+        "format": PAIR_INDEX_FORMAT,
+        "rows_a": rows_a.to(torch.long),
+        "rows_b": rows_b.to(torch.long),
+        "labels": labels.to(torch.long),
+        "kept_pair_indices": list(kept_pair_indices),
+        "n_total": int(n_total),
+        "n_kept": int(len(kept_pair_indices)),
+        "source_cache": str(source_cache),
+        "source_pairs": str(source_pairs),
+        "pair_key": str(pair_key),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(payload, path)
+    return payload
+
+
+def load_pair_index_cache(path: Path) -> dict[str, Any]:
+    """Load an ``auditppi_pair_index_v1`` pair-index cache."""
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    if payload.get("format") != PAIR_INDEX_FORMAT:
+        raise ValueError(f"{path} is not an {PAIR_INDEX_FORMAT} cache")
+    return payload
+
+
 def build_pair_payload(
     *,
     cache: dict[str, Any],
