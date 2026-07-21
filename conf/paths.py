@@ -167,9 +167,29 @@ PROTEIN_SAE_CACHES = SAE / "protein_caches"
 # max1022 suffix pins the cross-backbone-comparable residue budget.
 PRING_HUMAN_SAE_CACHE = PROTEIN_SAE_CACHES / "pring_human_protein_features_max1022.pt"
 PIC_HUMAN_SAE_CACHE = PROTEIN_SAE_CACHES / "pic_human_protein_features_max1022.pt"
-# RAPPPID C3 endpoint cache. The C1/C2/C3 CSVs carry raw query/text sequences
-# (no protein ids), so this cache is keyed by sequence via seq2idx, not id2idx.
+# RAPPPID C1/C2/C3 endpoint caches. The CSVs carry raw query/text sequences
+# (no protein ids), so these caches are keyed by sequence via seq2idx, not id2idx.
+C1_SAE_CACHE = PROTEIN_SAE_CACHES / "c1_protein_features_max1022.pt"
+C2_SAE_CACHE = PROTEIN_SAE_CACHES / "c2_protein_features_max1022.pt"
 C3_SAE_CACHE = PROTEIN_SAE_CACHES / "c3_protein_features_max1022.pt"
+# Cross-species (human train + held-out species tests) and Bernett gold-standard
+# endpoint caches. Both are sequence-keyed (no protein ids in the source CSVs).
+CROSS_SPECIES_SAE_CACHE = PROTEIN_SAE_CACHES / "cross_species_protein_features_max1022.pt"
+BERNETT_SAE_CACHE = PROTEIN_SAE_CACHES / "bernett_protein_features_max1022.pt"
+
+# Layer-2 PPI prediction: benchmark family -> its v1 protein feature cache. One
+# cache per family holds every endpoint sequence across that family's splits, so
+# a single cache serves the family's native-train + eval protocol. PRING is
+# per-species (human train graph + yeast/ecoli/arath test graphs), so it maps to
+# the per-species caches keyed by species rather than one family cache.
+PPI_PREDICTION_CACHES = {
+    "c1": C1_SAE_CACHE,
+    "c2": C2_SAE_CACHE,
+    "c3": C3_SAE_CACHE,
+    "cross_species": CROSS_SPECIES_SAE_CACHE,
+    "bernett": BERNETT_SAE_CACHE,
+    "pring": PRING_HUMAN_SAE_CACHE,
+}
 
 # Stage 3: per-pair engineered feature matrices (was reps/esmc/). Renamed to
 # pair_caches to name its true granularity (protein PAIRS, not "representations").

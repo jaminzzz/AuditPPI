@@ -44,12 +44,16 @@ from pathlib import Path
 
 from conf.paths import (
     BERNETT_DIR,
+    BERNETT_SAE_CACHE,
     BERNETT_SEQ_CACHE,
+    C1_SAE_CACHE,
+    C2_SAE_CACHE,
     C3_SAE_CACHE,
     C3_TEST_CSV,
     C3_TRAIN_CSV,
     C3_VAL_CSV,
     CROSS_SPECIES_DIR,
+    CROSS_SPECIES_SAE_CACHE,
     CROSS_SPECIES_SEQ_CACHE,
     ESMC_DEFAULT_SEQ_CACHE,
     FEATURE_TABLE,
@@ -450,6 +454,31 @@ def _pair_experiments() -> list[Experiment]:
                 script=f"scripts/audit_pair/analyze_c3_localization_{kind}.py",
                 inputs=_pair_cache_inputs(PAIR_CACHES, ("sae_max",)),
                 products=(RESULTS_PAIR / "negative_sampling_audit",),
+            )
+        )
+
+    # PPI-fingerprint pair-scale predictor (in-house participation-channel
+    # baseline): train XGB on each family's native-train endpoints, score its
+    # eval split. One cell per (family, model); the runner sweeps every rep and
+    # writes a per-cell summary. Each family reads its own v1 protein cache
+    # (PPI_PREDICTION_CACHES); PRING additionally needs its per-species caches.
+    fingerprint_family_inputs = {
+        "c1": (C1_SAE_CACHE,),
+        "c2": (C2_SAE_CACHE,),
+        "c3": (C3_SAE_CACHE,),
+        "cross_species": (CROSS_SPECIES_SAE_CACHE,),
+        "bernett": (BERNETT_SAE_CACHE,),
+        "pring": tuple(PRING_SPECIES_SAE_CACHES.values()),
+    }
+    for family, cache_inputs in fingerprint_family_inputs.items():
+        exps.append(
+            Experiment(
+                name=f"pair.ppi_fingerprint.{family}",
+                layer="pair",
+                script="scripts/audit_pair/run_ppi_fingerprint_baseline.py",
+                args=("--model", "xgb", "--family", family),
+                inputs=cache_inputs,
+                products=(RESULTS_MISC / "ppi_fingerprint" / f"summary_{family}_xgb_esmcL60.json",),
             )
         )
 

@@ -6,9 +6,20 @@ via :func:`src.eval.evaluate_scorer`. This is the pooled-fingerprint "participat
 gated AuditPPI model is judged against.
 
 Training protocol (user decision — per-benchmark native train):
+  c1:*           ← train on c1:train
+  c2:*           ← train on c2:train
   c3:*           ← train on c3:train
   cross_species:*← train on cross_species:human_train
+  bernett:*      ← train on bernett:train
+  pring:*        ← train on pring:human:train:<method> (zero-shot cross-species)
   rf2ppi         ← train on c3:train (RF2-PPI has no train split), zero-shot eval
+
+Feature source (v1): each family's ``auditppi_protein_features_v1`` protein cache
+(``conf.paths.PPI_PREDICTION_CACHES``) holds every endpoint sequence for that
+family across all its splits, keyed by sequence via ``seq2idx``. The
+``(backbone, layer, rep)`` channel is selected inside the cache at read time by
+:func:`~src.features.protein_cache.representation_matrix`. PRING is per-species,
+so its cache is resolved by species via ``PRING_SPECIES_SAE_CACHES``.
 """
 
 from __future__ import annotations
@@ -19,35 +30,73 @@ from typing import Dict, Optional
 
 import numpy as np
 
-from conf.model import DEFAULT_SEED, REPRESENTATIONS
+from conf.model import DEFAULT_BACKBONE, DEFAULT_SEED, REPRESENTATIONS, resolve_backbone_layer
 
 from src.eval import evaluate_scorer
 from src.data import pairs as D
 from src.features.feature_selection import xgb_topk_columns
-from src.features.pairs import sym_features
-from src.features.protein_cache import load_pooled_cache, pair_feature_rows
+from src.features.pairs import load_protein_feature_cache, sym_features
+from src.features.protein_cache import pair_feature_rows
 from src.features.sampling import stratified_subsample
 from src.models.architectures.dual_tower import train_dual_tower
 from src.models.estimators.tabpfn import fit_tabpfn, predict_proba_chunked
 from src.models.estimators.xgboost import fit_xgb
-from src.ppi_fingerprint.config import CACHE, MODEL_NAMES, NATIVE_TRAIN, OUT_DIR
+from src.ppi_fingerprint.config import (
+    CACHE,
+    MODEL_NAMES,
+    NATIVE_TRAIN,
+    OUT_DIR,
+    PRING_DEFAULT_METHOD,
+    PRING_SPECIES_SAE_CACHES,
+)
 
-_loaded: Dict[str, Dict] = {}  # cache of loaded pooled caches (large files)
+_loaded: Dict[Path, Dict] = {}  # cache of loaded v1 caches, keyed by resolved path
 
 
 def _family(name: str) -> str:
     return name.split(":")[0]
 
 
-def _get_cache(family: str) -> Dict:
-    if family not in _loaded:
-        _loaded[family] = load_pooled_cache(CACHE[family])
-    return _loaded[family]
+def _cache_path_for(name: str) -> Path:
+    """Resolve a benchmark name to its v1 protein feature cache path.
+
+    All families map through ``PPI_PREDICTION_CACHES`` except PRING, whose cache
+    is per-species (``name = pring:species[:split[:method]]``): human train graph
+    and each held-out species test graph live in their own cache.
+    """
+    family = _family(name)
+    if family == "pring":
+        parts = name.split(":")
+        species = parts[1] if len(parts) > 1 and parts[1] else "human"
+        return PRING_SPECIES_SAE_CACHES[species]
+    return CACHE[family]
 
 
-def _assemble(name: str, rep: str):
+def _get_cache(name: str) -> Dict:
+    path = _cache_path_for(name)
+    if path not in _loaded:
+        _loaded[path] = load_protein_feature_cache(path)
+    return _loaded[path]
+
+
+def _train_name_for(eval_name: str) -> str:
+    """The native-train benchmark name for an eval benchmark.
+
+    PRING trains on the human graph of the SAME sampling method as the eval graph
+    (or ``PRING_DEFAULT_METHOD`` for the cross-species test graphs, which carry no
+    method); every other family uses its ``NATIVE_TRAIN`` split.
+    """
+    family = _family(eval_name)
+    if family == "pring":
+        parts = eval_name.split(":")
+        method = parts[3] if len(parts) > 3 and parts[3] else PRING_DEFAULT_METHOD
+        return f"pring:human:train:{method}"
+    return NATIVE_TRAIN[family]
+
+
+def _assemble(name: str, rep: str, *, backbone: str, layer: Optional[int]):
     bench = D.load_benchmark(name, attach_seqs=True)
-    out = pair_feature_rows(bench, _get_cache(_family(name)), rep)
+    out = pair_feature_rows(bench, _get_cache(name), rep, layer=layer, backbone=backbone)
     if out is None:
         raise RuntimeError(f"no cached proteins for benchmark {name!r} rep {rep!r}")
     A, B, y, kept = out
@@ -55,16 +104,17 @@ def _assemble(name: str, rep: str):
 
 
 def run_baseline(model: str, rep: str, eval_name: str, *, top_k: int = 500,
+                 backbone: str = DEFAULT_BACKBONE, layer: Optional[int] = None,
                  train_subsample: Optional[int] = 100000, val_frac: float = 0.1, seed: int = DEFAULT_SEED,
                  out_dir: Path = OUT_DIR, write: bool = True) -> Dict:
     if model not in MODEL_NAMES:
         raise ValueError(f"unknown model {model!r}; choose from {MODEL_NAMES}")
     if rep not in REPRESENTATIONS:
         raise ValueError(f"unknown representation {rep!r}; choose from {REPRESENTATIONS}")
-    train_name = NATIVE_TRAIN[_family(eval_name)]
+    train_name = _train_name_for(eval_name)
 
     # ---- train (native) ----
-    _, Atr, Btr, ytr, _ = _assemble(train_name, rep)
+    _, Atr, Btr, ytr, _ = _assemble(train_name, rep, backbone=backbone, layer=layer)
     sub = stratified_subsample(ytr, train_subsample, seed)
     if sub is not None:
         import torch
@@ -81,7 +131,7 @@ def run_baseline(model: str, rep: str, eval_name: str, *, top_k: int = 500,
     Ava_, Bva_, yva_ = Atr.index_select(0, mv), Btr.index_select(0, mv), ytr[val_idx]
 
     # ---- eval (target benchmark) ----
-    ebench, Ae, Be, ye, kept = _assemble(eval_name, rep)
+    ebench, Ae, Be, ye, kept = _assemble(eval_name, rep, backbone=backbone, layer=layer)
     n_skipped = len(ebench.pairs) - len(kept)
 
     # ---- fit + predict ----
@@ -100,15 +150,20 @@ def run_baseline(model: str, rep: str, eval_name: str, *, top_k: int = 500,
         scores = tower.predict_proba_pairs(Ae, Be)
 
     # ---- score the eval benchmark (AUROC / AUPRC) ----
+    resolved_layer = resolve_backbone_layer(backbone, layer)
     score_map = {ebench.pairs[i]: float(s) for i, s in zip(kept, scores)}
     res = evaluate_scorer(lambda a, b: score_map.get((a, b)), ebench, name=f"{model}_{rep}")
     res.update({"model": model, "rep": rep, "eval": eval_name, "train": train_name,
+                "backbone": backbone, "layer": resolved_layer,
                 "top_k": top_k if model == "tabpfn" else None,
                 "n_train": int(len(ytr_)), "n_skipped_eval": int(n_skipped)})
-    print(f"[{model}·{rep}·{eval_name}] AUROC={res['auroc']} AUPRC={res['auprc']} "
+    print(f"[{model}·{rep}·{backbone}L{resolved_layer}·{eval_name}] "
+          f"AUROC={res['auroc']} AUPRC={res['auprc']} "
           f"(n_train={res['n_train']}, skip={n_skipped})", flush=True)
 
     if write:
         out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / f"{model}_{rep}_{eval_name.replace(':', '_')}.json").write_text(json.dumps(res, indent=2))
+        b_tag = f"{backbone}L{resolved_layer}"
+        stem = f"{model}_{rep}_{b_tag}_{eval_name.replace(':', '_')}"
+        (out_dir / f"{stem}.json").write_text(json.dumps(res, indent=2))
     return res
