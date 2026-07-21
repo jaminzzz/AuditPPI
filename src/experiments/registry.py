@@ -61,6 +61,8 @@ from conf.paths import (
     PDB_PPI_SAE_CACHE,
     PIC_DATASET_PKL,
     PIC_HUMAN_SAE_CACHE,
+    POOLED_ESM2_SEQ_CACHE,
+    POOLED_ESMC_SEQ_CACHE,
     PPI_DATA,
     PRING_HUMAN_SAE_CACHE,
     PRING_ROOT,
@@ -248,13 +250,15 @@ def _prep_experiments() -> list[Experiment]:
                 auto=False,
             )
         )
-    # PIC human essentiality proteins.
+    # PIC human essentiality proteins. Pure-CPU slice out of the pooled seq
+    # caches (the PIC pickle supplies ids/sequences/labels; features come from
+    # the pooled ESM-C L60/L80 + ESM-2 L33 caches).
     exps.append(
         Experiment(
             name="prep.protein_cache.pic_human",
             layer="prep",
             script="scripts/cache/cache_pic_human_esmc_sae.py",
-            inputs=(PIC_DATASET_PKL["human"],),
+            inputs=(PIC_DATASET_PKL["human"], POOLED_ESMC_SEQ_CACHE, POOLED_ESM2_SEQ_CACHE),
             products=(PIC_HUMAN_SAE_CACHE,),
             auto=False,
         )

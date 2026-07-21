@@ -13,16 +13,15 @@ Design
 - Labels + split are reproduced *exactly* from PIC's ``get_index`` on the full
   65,057-protein human table (random_seed=42, test_ratio=0.1, val_ratio=0.1),
   so our test proteins are a subset of PIC's official test proteins.
-- Because we only cached the SAE/ESM-C features for the ~14.7k proteins that
-  matched an existing ESM-C cache by exact sequence, every PIC split is
-  intersected with the cached subset. This subset is NOT random (it is the set
-  of proteins that happened to appear in prior PPI benchmarks), so absolute
-  numbers are only loosely comparable to PIC's full-set numbers; the
-  informative quantity is the *relative* ordering of feature kinds and the fact
-  that a frozen SAE fingerprint recovers essentiality at all.
-- Features: ``sae_max`` (16384), ``binary`` (sae_max>0), ``esmc_mean`` (2560),
-  and a ``sequence_basic`` composition baseline. Classifier: XGBoost with
-  scale_pos_weight, mirroring run_pring_high_participation_classifier.py.
+- The v1 protein feature cache (``auditppi_protein_features_v1``) now carries
+  features for ALL 65,057 PIC human proteins (sliced from the pooled seq caches
+  by exact sequence), so every PIC split is covered in full -- the earlier
+  "cached ~14.7k non-random subset" caveat no longer applies, and absolute
+  numbers are directly comparable to PIC's full-set evaluation.
+- Features: ``sae_max``, ``binary`` (sae_max>0), ``esmc_mean``, and a
+  ``sequence_basic`` composition baseline. ``--backbone`` / ``--layer`` pick the
+  channel within the v1 cache (ESM-C L60/L80 or ESM-2 L33). Classifier: XGBoost
+  with scale_pos_weight, mirroring run_pring_high_participation_classifier.py.
 """
 
 from __future__ import annotations
@@ -35,12 +34,19 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-from conf.model import DEFAULT_SEED
+from conf.model import (
+    BACKBONE_LAYERS,
+    BACKBONES,
+    DEFAULT_BACKBONE,
+    DEFAULT_SEED,
+    resolve_backbone_layer,
+)
 from conf.paths import RESULTS_PROTEIN, PIC_DATA, PIC_HUMAN_SAE_CACHE
 from src.experiments.results import dump_experiment
 from src.runtime import seed_all
 from src.eval.classification import binary_classification_metrics
 from src.models.estimators.xgboost import fit_xgb_classifier
+from src.features.protein_cache import representation_matrix
 from src.features.sequence_composition import sequence_features
 
 DEFAULT_CACHE = PIC_HUMAN_SAE_CACHE
@@ -87,19 +93,21 @@ def torch_load_cache(path: Path) -> dict:
     return torch.load(str(path), **kwargs)
 
 
-def feature_matrix(cache: dict, rows: Sequence[int], kind: str) -> np.ndarray:
+def feature_matrix(
+    cache: dict, rows: Sequence[int], kind: str, *, backbone: str, layer: int | None
+) -> np.ndarray:
+    """Gather a representation's per-protein rows from a v1 protein cache.
+
+    ``kind`` is one of the pooled REPRESENTATIONS (``sae_max`` / ``binary`` /
+    ``esmc_mean``); the ``(backbone, layer)`` channel is selected within the v1
+    ``features`` subdict by :func:`representation_matrix`. ``binary`` arrives as a
+    bool matrix (``sae_max > 0``) and is cast to float for the classifier.
+    """
     import torch
 
     idx = torch.as_tensor(list(rows), dtype=torch.long)
-    if kind in ("sae_max", "binary"):
-        mat = cache["esmc_sae_max"]
-    elif kind == "esmc_mean":
-        mat = cache["esmc_mean"]
-    else:
-        raise ValueError(kind)
+    mat = representation_matrix(cache, kind, layer, backbone)
     X = mat.index_select(0, idx)
-    if kind == "binary":
-        X = X > 0
     return X.float().numpy().astype(np.float32, copy=False)
 
 
@@ -114,6 +122,10 @@ def main() -> None:
     p.add_argument("--label-col", default="human")
     p.add_argument("--out-dir", type=Path, default=OUT_DIR / "human_xgboost")
     p.add_argument("--feature-kind", choices=[*FEATURE_KINDS, "all"], default="all")
+    p.add_argument("--backbone", choices=BACKBONES, default=DEFAULT_BACKBONE,
+                   help="within-cache backbone line (esmc/esm2)")
+    p.add_argument("--layer", type=int, default=None,
+                   help="within-cache layer (default: backbone default)")
     p.add_argument("--test-ratio", type=float, default=0.1)
     p.add_argument("--val-ratio", type=float, default=0.1)
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
@@ -128,6 +140,10 @@ def main() -> None:
     # Global RNG seed for the whole run; the deterministic PIC split below reseeds
     # random.seed(args.seed) locally to reproduce its exact row shuffle.
     seed_all(args.seed)
+
+    layer = resolve_backbone_layer(args.backbone, args.layer)
+    if layer not in BACKBONE_LAYERS[args.backbone]:
+        raise ValueError(f"backbone {args.backbone!r} has no layer {layer}")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -156,11 +172,13 @@ def main() -> None:
     )
 
     # 2. Load cached-feature subset; intersect each split with it by ENSP ID.
+    # The v1 protein cache holds features only (no labels): labels come from the
+    # PIC table by ENSP id, so we key everything off ``full_labels`` above.
     cache = torch_load_cache(args.cache_path)
     cache_ids = [str(x) for x in cache["protein_ids"]]
-    cache_labels = np.asarray(cache["labels"], dtype=np.int8)
     id2row = {pid: i for i, pid in enumerate(cache_ids)}
     cache_seqs = [str(s) for s in cache["sequences"]]
+    label_of = {full_ids[i]: full_labels[i] for i in range(len(full_ids))}
 
     split_rows = {"train": [], "val": [], "test": []}
     for pid, row in id2row.items():
@@ -170,8 +188,10 @@ def main() -> None:
     for s in split_rows:
         split_rows[s] = sorted(split_rows[s])
 
+    row_id = {row: pid for pid, row in id2row.items()}
+
     def rows_labels(rows):
-        return np.asarray([int(cache_labels[r]) for r in rows], dtype=np.int8)
+        return np.asarray([int(label_of[row_id[r]]) for r in rows], dtype=np.int8)
 
     ytr = rows_labels(split_rows["train"])
     yva = rows_labels(split_rows["val"])
@@ -198,8 +218,10 @@ def main() -> None:
             "full_test": len(te_pos),
             "full_pos_rate": round(float(np.mean(full_labels)), 6),
         },
+        "backbone": args.backbone,
+        "layer": layer,
         "cached_subset": {
-            "note": "features only cached for proteins matched to prior ESM-C caches by exact sequence; NOT a random subset",
+            "note": "v1 protein cache covers ALL PIC human proteins; splits are the full PIC partition",
             "n_cached": len(cache_ids),
             "n_in_split": n_cache_in_split,
             "n_train": int(ytr.size),
@@ -219,9 +241,9 @@ def main() -> None:
             Xva = sequence_matrix([cache_seqs[r] for r in split_rows["val"]], kmer=args.kmer)
             Xte = sequence_matrix([cache_seqs[r] for r in split_rows["test"]], kmer=args.kmer)
         else:
-            Xtr = feature_matrix(cache, split_rows["train"], kind)
-            Xva = feature_matrix(cache, split_rows["val"], kind)
-            Xte = feature_matrix(cache, split_rows["test"], kind)
+            Xtr = feature_matrix(cache, split_rows["train"], kind, backbone=args.backbone, layer=args.layer)
+            Xva = feature_matrix(cache, split_rows["val"], kind, backbone=args.backbone, layer=args.layer)
+            Xte = feature_matrix(cache, split_rows["test"], kind, backbone=args.backbone, layer=args.layer)
 
         clf = fit_xgb_classifier(
             Xtr, ytr, Xva, yva,
@@ -250,7 +272,8 @@ def main() -> None:
         )
 
     out = {**subset_summary, "results": results}
-    out_path = args.out_dir / f"pic_{args.label_col}_frozen_sae_xgboost.json"
+    b_tag = f"{args.backbone}L{layer}"
+    out_path = args.out_dir / f"pic_{args.label_col}_frozen_sae_xgboost_{b_tag}.json"
     dump_experiment(
         out_path,
         task="protein.pic_essentiality",

@@ -140,6 +140,13 @@ ESMC_DEFAULT_SEQ_CACHE = SEQ_CACHES / "esmc_default_seq_cache.pt"
 # ESM-2 (650M) + InterPLM-SAE pooled cache (legacy ESM-2 fingerprint line).
 ESM2_SEQ_CACHE = SEQ_CACHES / "esm2_650m_seq_cache.pt"
 
+# Pooled unique-sequence feature caches (auditppi_protein_features_v1) holding
+# every benchmark sequence's channels. The per-dataset protein caches are sliced
+# out of these on CPU (see scripts/prep/slice_dataset_protein_cache.py). The
+# max1022 suffix pins the cross-backbone-comparable residue budget.
+POOLED_ESMC_SEQ_CACHE = SEQ_CACHES / "pooled_esmc_l60_l80_max1022_features.pt"
+POOLED_ESM2_SEQ_CACHE = SEQ_CACHES / "pooled_esm2_l33_max1022_features.pt"
+
 # Benchmark -> pooled per-sequence cache. Which seq-cache each benchmark's pooled
 # fingerprints live in; shared by the ppi_fingerprint baseline and the C3 /
 # cross-species sequence-participation oracle. (Was ppi_fingerprint.config.CACHE.)
@@ -307,6 +314,12 @@ PIC_DATASET_PKL = {
     "mouse": PIC_DATA_DIR / "mouse_data.pkl",
     "cell": PIC_DATA_DIR / "cell_data.pkl",
 }
+# Flat CSV export of the PIC human essentiality set (ID,sequence,label), written
+# by scripts/prep/export_pic_human_csv.py from the legacy-numpy pickle. This is
+# the format-neutral input the v1 protein-cache slicer consumes (--id-cols ID),
+# isolating the PIC-specific pickle read in the prep step.
+PIC_HUMAN_DIR = DATA / "raw" / "pic"
+PIC_HUMAN_CSV = PIC_HUMAN_DIR / "pic_human.csv"
 
 # PRING cross-species generalization (participation oracle): train on human,
 # zero-shot test on the held-out species (each has its own full {sp}_graph.pkl

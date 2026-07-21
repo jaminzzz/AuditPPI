@@ -1,353 +1,172 @@
 #!/usr/bin/env python3
-"""Cache pooled ESM-C + SAE features for PIC human essentiality proteins.
+"""Build the PIC human essentiality v1 protein cache (pure-CPU slice).
 
 PIC (Protein Importance Calculator) predicts human essential proteins from
-single sequences. Its data uses Ensembl protein ids (ENSP...), which do not
-map to the UniProt ids in our existing pooled caches, so proteins are matched
-to cached features by *exact sequence* (truncated to --max-residues) only.
+single sequences. Its data ships a legacy-numpy pickle keyed by Ensembl protein
+ids (ENSP...) with a per-dataset binary label column. Every PIC human sequence
+already lives in the pooled seq caches under ``data/sae/seq_caches`` (collected
+from every benchmark's unique sequences), so this step no longer runs the model:
+it *slices* a dataset-specific ``auditppi_protein_features_v1`` cache out of the
+pooled caches, exactly like ``scripts/prep/slice_dataset_protein_cache.py``.
+
+  1. read PIC human via ``src.data.proteins.load_pic`` (the single id/seq/label
+     contract, incl. the numpy-core shim for the old pickle);
+  2. build a de-duplicated manifest (identical sequences share one feature row,
+     every ENSP id kept as an alias) via the shared manifest builder, so the
+     id/sequence contract is identical to the FASTA/CSV slicer;
+  3. resolve each unique sequence to its row in each pooled cache and
+     ``index_select`` every ESM-C L60/L80 and ESM-2 L33 channel onto it;
+  4. write the result with the real ENSP ``id2idx`` so the essentiality
+     classifier resolves labels (from the PIC pickle) row-by-row.
+
+Coverage is expected to be 100% -- the pooled manifest contains every PIC human
+sequence. A missing sequence is a hard error unless ``--allow-missing``.
 
 Run in the unified E1 conda environment:
 
   /data/wmzhu/anaconda3/envs/E1/bin/python \
-      scripts/cache/cache_pic_human_esmc_sae.py --prefill-only
-
-Output format matches the ppi_fingerprint pooled cache:
-  - seq2idx / sequences
-  - esmc_mean / esmc_sae_max
-PIC-specific rows additionally stored:
-  - protein_ids (ENSP), id2idx, labels (essentiality 0/1)
+      scripts/cache/cache_pic_human_esmc_sae.py
 """
 
 from __future__ import annotations
 
 import argparse
-import os
-import pickle
-import subprocess
-import time
+import json
+import sys
 from pathlib import Path
 
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+import torch
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from conf.paths import (
-    ESMC_MODEL, ESMC_SAE, PIC_DATA,
-    ROSETTA_SEQ_CACHE, CROSS_SPECIES_SEQ_CACHE, BERNETT_SEQ_CACHE,
-    PIC_HUMAN_SAE_CACHE, PRING_HUMAN_SAE_CACHE,
+    PIC_HUMAN_SAE_CACHE,
+    POOLED_ESM2_SEQ_CACHE,
+    POOLED_ESMC_SEQ_CACHE,
 )
-from conf.model import (
-    ESMC_SAE_DEFAULT_LAYER, ESMC_SAE_AVAILABLE_LAYERS,
-    MAX_RESIDUES, ESMC_DIM, ESMC_SAE_DIM, ESMC_SAE_K,
-)
-from src.runtime.device import pick_free_gpu
-
-MODEL = ESMC_MODEL
-SAE = ESMC_SAE
-OUT = PIC_HUMAN_SAE_CACHE
-
-# Existing pooled caches to prefill from, all ESMC-6B / default layer / k64 / dict16384.
-SEED_CACHES = (
-    ROSETTA_SEQ_CACHE,
-    CROSS_SPECIES_SEQ_CACHE,
-    BERNETT_SEQ_CACHE,
-    PRING_HUMAN_SAE_CACHE,
+from src.data.proteins import load_pic
+from src.features.extractors import save_feature_cache
+from src.features.manifest import ProteinManifest, _ManifestBuilder
+from scripts.prep.slice_dataset_protein_cache import (
+    build_sub_manifest,
+    load_pooled,
+    slice_channels,
+    verify_slice,
 )
 
 
-def pick_gpu() -> str:
-    return str(pick_free_gpu())
-
-
-def layer_tagged_cache_path(path: Path, layer: int) -> Path:
-    """Keep the default-layer path stable; tag other layers so they do not clobber it."""
-    if layer == ESMC_SAE_DEFAULT_LAYER:
-        return path
-    return path.with_name(f"{path.stem}_l{layer}{path.suffix}")
+def build_pic_manifest(label_col: str) -> ProteinManifest:
+    """Manifest of PIC human proteins (dedup by sequence, ENSP ids as aliases)."""
+    dataset = load_pic("human", label_col=label_col)
+    builder = _ManifestBuilder()
+    for identifier in dataset.ids:
+        builder.add(identifier, dataset.seqs[identifier])
+    return ProteinManifest(
+        protein_ids=builder.protein_ids,
+        sequences=builder.sequences,
+        id2idx=builder.id2idx,
+        seq2idx=builder.seq2idx,
+        sources=[f"pic:{label_col}"],
+    )
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Cache PIC human pooled ESM-C/SAE features")
-    p.add_argument("--data", type=Path, default=PIC_DATA)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--label-col", type=str, default="human")
+    p.add_argument("--esmc-pooled", type=Path, default=POOLED_ESMC_SEQ_CACHE)
+    p.add_argument("--esm2-pooled", type=Path, default=POOLED_ESM2_SEQ_CACHE)
+    p.add_argument("--out", type=Path, default=PIC_HUMAN_SAE_CACHE)
     p.add_argument(
-        "--layer", type=int, default=ESMC_SAE_DEFAULT_LAYER,
-        help=f"ESM-C SAE layer to probe (checkpoint has {list(ESMC_SAE_AVAILABLE_LAYERS)}; "
-             f"default {ESMC_SAE_DEFAULT_LAYER})",
-    )
-    p.add_argument(
-        "--out", type=Path, default=None,
-        help=f"output cache path (default: {OUT.name}, "
-             f"or *_lN.pt when --layer != {ESMC_SAE_DEFAULT_LAYER})",
-    )
-    p.add_argument("--max-residues", type=int, default=MAX_RESIDUES)
-    p.add_argument(
-        "--prefill-only",
+        "--allow-missing",
         action="store_true",
-        help="only keep proteins matched by sequence in existing caches; skip GPU inference",
+        help="drop sequences absent from a pooled cache instead of failing",
     )
-    p.add_argument("--force-infer-all", action="store_true", help="ignore caches; recompute every protein")
-    p.add_argument("--limit", type=int, default=0, help="cap number of proteins for smoke tests")
-    p.add_argument("--token-budget", type=int, default=3072)
-    p.add_argument("--device-id", type=int, default=None, help="physical GPU id; default picks most free")
-    p.add_argument("--sae-token-chunk", type=int, default=512)
-    p.add_argument(
-        "--store-all-hidden-states",
-        action="store_true",
-        help="store all hidden states and select hidden_states[layer]; default uses last_hidden_state",
-    )
+    p.add_argument("--overwrite", action="store_true")
     return p.parse_args()
-
-
-def torch_load_cache(path: Path) -> dict:
-    import inspect
-
-    import torch
-
-    kwargs = {"map_location": "cpu", "weights_only": False}
-    if "mmap" in inspect.signature(torch.load).parameters:
-        kwargs["mmap"] = True
-    return torch.load(str(path), **kwargs)
-
-
-def clone_cache_row(cache: dict, row: int):
-    return (
-        cache["esmc_mean"][row].detach().cpu().clone(),
-        cache["esmc_sae_max"][row].detach().cpu().clone(),
-    )
-
-
-def load_pic(data_path: Path, label_col: str) -> tuple[list[str], list[str], list[int]]:
-    with data_path.open("rb") as f:
-        df = pickle.load(f)
-    ids = [str(x) for x in df["ID"].tolist()]
-    seqs = [str(s).upper() for s in df["sequence"].tolist()]
-    labels = [int(v) for v in df[label_col].tolist()]
-    return ids, seqs, labels
-
-
-def save_cache(
-    *,
-    out: Path,
-    ids: list[str],
-    seqs: list[str],
-    labels: list[int],
-    esmc_mean: list,
-    sae_max: list,
-    meta: dict,
-) -> None:
-    import torch
-
-    id2idx = {pid: i for i, pid in enumerate(ids)}
-    seq2idx: dict[str, int] = {}
-    for i, seq in enumerate(seqs):
-        seq2idx.setdefault(seq, i)
-    cache = {
-        "protein_ids": ids,
-        "sequences": seqs,
-        "labels": torch.tensor(labels, dtype=torch.int8),
-        "id2idx": id2idx,
-        "seq2idx": seq2idx,
-        "esmc_mean": torch.stack(esmc_mean),
-        "esmc_sae_max": torch.stack(sae_max),
-        "meta": meta,
-    }
-    torch.save(cache, out)
 
 
 def main() -> None:
     args = parse_args()
-    if args.layer not in ESMC_SAE_AVAILABLE_LAYERS:
-        raise ValueError(
-            f"--layer {args.layer} not in ESMC_SAE_AVAILABLE_LAYERS={ESMC_SAE_AVAILABLE_LAYERS}"
+    if args.out.exists() and not args.overwrite:
+        raise FileExistsError(
+            f"output exists: {args.out}; pass --overwrite to replace it"
         )
-    if args.out is None:
-        args.out = layer_tagged_cache_path(OUT, args.layer)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
 
-    import torch
-
-    ids, seqs_full, labels = load_pic(args.data, args.label_col)
-    # PIC truncates to truncation_seq_length=1024 tokens (~1022 residues + BOS/EOS).
-    seqs = [s[: args.max_residues] for s in seqs_full]
-    if args.limit:
-        ids, seqs, labels = ids[: args.limit], seqs[: args.limit], labels[: args.limit]
-    pos = sum(labels)
+    manifest = build_pic_manifest(args.label_col)
     print(
-        f"[data] {args.data.name} proteins={len(ids)} label='{args.label_col}' "
-        f"pos={pos} neg={len(ids) - pos} pos_rate={pos / max(1, len(ids)):.4f} "
-        f"max_residues={args.max_residues}",
+        f"[manifest] pic:{args.label_col} unique_sequences={len(manifest)} "
+        f"id_aliases={len(manifest.id2idx)}",
         flush=True,
     )
 
-    esmc_mean = [None] * len(seqs)
-    sae_max = [None] * len(seqs)
-    source = ["missing"] * len(seqs)
+    pooled_caches: list[tuple[str, Path, dict]] = []
+    if args.esmc_pooled is not None:
+        pooled_caches.append(("esmc", args.esmc_pooled, load_pooled(args.esmc_pooled)))
+    if args.esm2_pooled is not None:
+        pooled_caches.append(("esm2", args.esm2_pooled, load_pooled(args.esm2_pooled)))
+    if not pooled_caches:
+        raise SystemExit("at least one of --esmc-pooled / --esm2-pooled is required")
 
-    # Resume from our own output if present.
-    resume_paths = []
-    if not args.force_infer_all and args.out.exists():
-        resume_paths.append(args.out)
-    seed_paths = [] if args.force_infer_all else [p for p in SEED_CACHES if p.exists()]
+    # Kept = sequences present in EVERY requested pooled cache (channels align).
+    kept_mask = [True] * len(manifest.sequences)
+    per_cache_missing: dict[str, list[str]] = {}
+    for label, _path, pooled in pooled_caches:
+        seq2idx = pooled["seq2idx"]
+        missing: list[str] = []
+        for position, sequence in enumerate(manifest.sequences):
+            if sequence not in seq2idx:
+                kept_mask[position] = False
+                missing.append(manifest.protein_ids[position])
+        per_cache_missing[label] = missing
+        print(f"[{label}] missing sequences: {len(missing)}", flush=True)
 
-    for path in resume_paths + seed_paths:
-        cache = torch_load_cache(path)
-        seq2idx = cache.get("seq2idx", {})
-        hit = 0
-        for i, seq in enumerate(seqs):
-            if esmc_mean[i] is not None:
-                continue
-            row = seq2idx.get(seq)
-            if row is None:
-                continue
-            esmc_mean[i], sae_max[i] = clone_cache_row(cache, int(row))
-            source[i] = "resume" if path in resume_paths else "seed"
-            hit += 1
-        print(f"[prefill] {path.name}: matched {hit} by sequence", flush=True)
+    kept_positions = [i for i, keep in enumerate(kept_mask) if keep]
+    n_missing = len(manifest.sequences) - len(kept_positions)
+    if n_missing and not args.allow_missing:
+        examples = [
+            manifest.protein_ids[i] for i in range(len(kept_mask)) if not kept_mask[i]
+        ][:20]
+        raise RuntimeError(
+            f"{n_missing} sequences absent from a pooled cache; pass --allow-missing "
+            f"to drop them. Examples: {examples}"
+        )
 
-    missing = [i for i, v in enumerate(esmc_mean) if v is None]
-    matched = len(ids) - len(missing)
-    print(f"[prefill] total matched={matched}/{len(ids)} missing={len(missing)}", flush=True)
+    sub_manifest = build_sub_manifest(manifest, kept_positions)
 
-    def meta_base(complete: bool, prefill_only: bool) -> dict:
-        return {
-            "dataset": "PIC human essentiality",
-            "data_path": str(args.data),
-            "label_col": args.label_col,
-            "model": "ESMC-6B",
-            "layer": args.layer,
-            "k": ESMC_SAE_K,
-            "dict": ESMC_SAE_DIM,
-            "act_dim": ESMC_DIM,
-            "max_residues": args.max_residues,
-            "complete": complete,
-            "prefill_only": prefill_only,
-            "id_type": "ensembl_protein (ENSP)",
-            "match_strategy": "exact truncated sequence",
-            "n_pic_proteins_requested": len(ids),
-            "seed_caches": [str(p) for p in seed_paths],
-            "source_counts": {name: source.count(name) for name in sorted(set(source))},
+    features: dict[str, torch.Tensor] = {}
+    extractor_meta: dict = {"sliced_from": {}, "dataset": f"PIC {args.label_col} essentiality"}
+    for label, path, pooled in pooled_caches:
+        seq2idx = pooled["seq2idx"]
+        rows = [int(seq2idx[seq]) for seq in sub_manifest.sequences]
+        row_index = torch.as_tensor(rows, dtype=torch.long)
+        channels = slice_channels(pooled, row_index)
+        verify_slice(channels, pooled, rows)
+        features.update(channels)
+        extractor_meta["sliced_from"][label] = {
+            "pooled_cache": str(path),
+            "extractor": pooled.get("meta", {}).get("extractor"),
+            "channels": sorted(channels),
         }
 
-    if args.prefill_only or not missing:
-        keep = [i for i, v in enumerate(esmc_mean) if v is not None]
-        if not keep:
-            raise RuntimeError("no PIC proteins matched any existing cache by sequence")
-        meta = meta_base(complete=not bool(missing), prefill_only=args.prefill_only)
-        meta["n_cached_proteins"] = len(keep)
-        meta["n_missing_proteins"] = len(missing)
-        meta["missing_protein_ids"] = [ids[i] for i in missing][:5000]
-        save_cache(
-            out=args.out,
-            ids=[ids[i] for i in keep],
-            seqs=[seqs[i] for i in keep],
-            labels=[labels[i] for i in keep],
-            esmc_mean=[esmc_mean[i] for i in keep],
-            sae_max=[sae_max[i] for i in keep],
-            meta=meta,
-        )
-        size_mb = args.out.stat().st_size / 1e6
-        kept_pos = sum(labels[i] for i in keep)
-        print(
-            f"[saved] {args.out} ({size_mb:.0f} MB) rows={len(keep)} "
-            f"pos={kept_pos} pos_rate={kept_pos / len(keep):.4f} missing={len(missing)}",
-            flush=True,
-        )
-        print("PREFILL_DONE" if args.prefill_only and missing else "CACHE_DONE", flush=True)
-        return
-
-    # --- GPU inference for the missing proteins ---
-    device_id = str(args.device_id) if args.device_id is not None else pick_gpu()
-    os.environ["CUDA_VISIBLE_DEVICES"] = device_id
-    print(f"[device] CUDA_VISIBLE_DEVICES={device_id} (physical)", flush=True)
-
-    from transformers import AutoModel, AutoTokenizer
-
-    print("[load] ESMC-6B + SAE ...", flush=True)
-    model = AutoModel.from_pretrained(
-        str(MODEL), torch_dtype=torch.bfloat16, trust_remote_code=True
-    ).to("cuda").eval()
-    tok = AutoTokenizer.from_pretrained(str(MODEL))
-    sae = AutoModel.from_pretrained(str(SAE), trust_remote_code=True)
-    sae.initialize_layers([args.layer])
-    layer = sae.layers[str(args.layer)]
-    w_enc = layer.W_enc.detach().float().cuda()
-    b_dec = layer.b_dec.detach().float().cuda()
-    k = int(layer.params.k)
-    act_dim, dict_dim = w_enc.shape
-    assert act_dim == ESMC_DIM, (act_dim, ESMC_DIM)
-    assert dict_dim == ESMC_SAE_DIM, (dict_dim, ESMC_SAE_DIM)
-    assert k == ESMC_SAE_K, (k, ESMC_SAE_K)
-    print(f"[sae] W_enc={tuple(w_enc.shape)} k={k}", flush=True)
-
-    def sae_pool(h: torch.Tensor) -> torch.Tensor:
-        pooled_max = torch.zeros(dict_dim, device=h.device, dtype=torch.float32)
-        n_tokens = max(int(h.shape[0]), 1)
-        chunk = max(1, args.sae_token_chunk)
-        for start in range(0, n_tokens, chunk):
-            hc = h[start : start + chunk]
-            x = hc - hc.mean(-1, keepdim=True)
-            x = x / (x.std(-1, keepdim=True) + 1e-5)
-            pre = torch.relu((x - b_dec) @ w_enc)
-            vals, idx = pre.topk(k, dim=-1)
-            flat_idx = idx.reshape(-1)
-            flat_vals = vals.reshape(-1)
-            pooled_max.scatter_reduce_(0, flat_idx, flat_vals, reduce="amax", include_self=True)
-        return pooled_max
-
-    @torch.inference_mode()
-    def run_batch(batch_seqs: list[str]):
-        enc = tok(batch_seqs, return_tensors="pt", padding=True)
-        enc = {key: val.to("cuda") for key, val in enc.items()}
-        out = model(**enc, output_hidden_states=args.store_all_hidden_states)
-        h = out.hidden_states[args.layer] if args.store_all_hidden_states else out.last_hidden_state
-        am = enc["attention_mask"].bool()
-        em, smx = [], []
-        for i in range(h.size(0)):
-            mask = am[i].clone()
-            idxs = mask.nonzero(as_tuple=True)[0]
-            if idxs.numel() > 2:
-                mask[idxs[0]] = False
-                mask[idxs[-1]] = False
-            hi = h[i][mask].float()
-            em.append(hi.mean(0).half().cpu())
-            fmax = sae_pool(hi)
-            smx.append(fmax.half().cpu())
-        return em, smx
-
-    order = sorted(missing, key=lambda i: len(seqs[i]))
-    i = 0
-    done = 0
-    t0 = time.time()
-    while i < len(order):
-        seq_len = max(len(seqs[order[i]]), 1) + 2
-        bs = max(1, args.token_budget // seq_len)
-        idxs = order[i : i + bs]
-        i += bs
-        em, smx = run_batch([seqs[j] for j in idxs])
-        for j, a, b in zip(idxs, em, smx):
-            esmc_mean[j], sae_max[j] = a, b
-            source[j] = "inferred"
-        done += len(idxs)
-        if done % 512 < bs:
-            rate = done / max(time.time() - t0, 1e-6)
-            print(f"  {done}/{len(missing)}  {rate:.1f} seq/s  elapsed {time.time()-t0:.0f}s", flush=True)
-
-    meta = meta_base(complete=True, prefill_only=False)
-    meta["n_inferred"] = len(missing)
-    save_cache(
-        out=args.out,
-        ids=ids,
-        seqs=seqs,
-        labels=labels,
-        esmc_mean=esmc_mean,
-        sae_max=sae_max,
-        meta=meta,
+    save_feature_cache(
+        args.out,
+        manifest=sub_manifest,
+        features=features,
+        extractor_meta=extractor_meta,
+        overwrite=args.overwrite,
     )
-    fp = torch.stack(sae_max)
-    dens = (fp > 0).float().mean().item()
-    size_mb = args.out.stat().st_size / 1e6
-    print(f"[saved] {args.out} ({size_mb:.0f} MB) in {time.time()-t0:.0f}s active_density={dens*100:.2f}%", flush=True)
+    coverage = {
+        "n_manifest_sequences": len(manifest.sequences),
+        "n_kept_sequences": len(kept_positions),
+        "n_dropped_sequences": n_missing,
+        "per_cache_missing_counts": {k: len(v) for k, v in per_cache_missing.items()},
+    }
+    print(f"[coverage] {json.dumps(coverage)}", flush=True)
+    print(f"[saved] {args.out} channels={sorted(features)}", flush=True)
     print("CACHE_DONE", flush=True)
 
 
