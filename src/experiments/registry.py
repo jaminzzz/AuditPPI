@@ -43,37 +43,30 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from conf.paths import (
-    BERNETT_DIR,
     BERNETT_SAE_CACHE,
-    BERNETT_SEQ_CACHE,
     C1_SAE_CACHE,
     C2_SAE_CACHE,
     C3_PAIR_INDEX_CACHES,
     C3_SAE_CACHE,
-    C3_TEST_CSV,
-    C3_TRAIN_CSV,
-    C3_VAL_CSV,
-    CROSS_SPECIES_DIR,
     CROSS_SPECIES_PAIR_INDEX_CACHES,
     CROSS_SPECIES_SAE_CACHE,
-    CROSS_SPECIES_SEQ_CACHE,
-    ESMC_DEFAULT_SEQ_CACHE,
     FEATURE_TABLE,
     PDB_PPI_SAE_CACHE,
     PIC_DATASET_PKL,
+    PIC_HUMAN_CSV,
     PIC_HUMAN_SAE_CACHE,
     POOLED_ESM2_SEQ_CACHE,
     POOLED_ESMC_SEQ_CACHE,
     PPI_DATA,
+    PRING_CROSS_SPECIES as PRING_SPECIES,
     PRING_HUMAN_SAE_CACHE,
-    PRING_ROOT,
     PRING_SPECIES_SAE_CACHES,
     RESULTS_MISC,
     RESULTS_PAIR,
     RESULTS_PROTEIN,
     RESULTS_RESIDUE,
-    ROSETTA_SEQ_CACHE,
 )
+from src.data.pring_graph import METHODS as PRING_METHODS
 
 # --- Layer ordering (main-trunk route: protein -> pair -> residue) ----------
 # Producers before consumers. ``prep`` (the GPU forward-pass cache builders)
@@ -165,8 +158,7 @@ class Experiment:
 # verified against source, not guessed).
 # ---------------------------------------------------------------------------
 PAIR_REPS = ("sae_max", "binary")            # C3/PRING endpoint scripts REP_SUBDIR / REPS
-PRING_METHODS = ("BFS", "DFS", "RANDOM_WALK")
-PRING_SPECIES = ("yeast", "ecoli", "arath")  # cross-species generalization test graphs
+# PRING_METHODS / PRING_SPECIES imported above (single source: pring_graph / paths).
 PROTEIN_REPS = ("sae_max", "binary", "esmc_mean")  # mirrors conf.model.REPRESENTATIONS
 
 # A pair consumer's inputs are now the lightweight pair-index caches (endpoint
@@ -183,91 +175,45 @@ def _pair_index_inputs(
 # ===========================================================================
 # Layer 0 -- PREP (feature-cache builders: the GPU forward passes)
 # ===========================================================================
-# These are the expensive, human-managed prerequisites: each runs an ESM-C (+SAE)
-# forward pass over a dataset's sequences and writes the pooled cache the audit
-# layers consume. They are declared for matrix completeness and readiness
-# bookkeeping -- their ``products`` are exactly the ``inputs`` of downstream
-# cells, so a prep cell's output auto-lights the consumers that need it -- but
-# they are ``auto=False`` so ``--all`` never kicks off a multi-hour GPU job
-# implicitly. Run them explicitly with ``--experiment prep.<name>``.
+# Active prep cells only. Per-benchmark ESM-C fingerprint builders, GPU PRING
+# protein-cache scripts, and the PIC pickle-wrapper slicer were retired:
+# features now come from pooled seq caches under ``data/sae/seq_caches`` via
+# ``scripts/prep/slice_dataset_protein_cache.py`` (PIC uses the exported CSV
+# ``data/raw/pic/pic_human.csv`` from ``export_pic_human_csv.py``). Retired
+# scripts live under ``backups/scripts/cache/``.
 #
-# ``inputs`` here are the *raw* sources (FASTA / split CSVs / pickles / metadata
-# dirs), so a prep cell is "not ready" only when its raw data is genuinely
-# absent -- distinct from "cache not built yet" (which shows up as the cache
-# being missing from the consumer's inputs, not the prep cell's).
+# Remaining cells are ``auto=False`` so ``--all`` never kicks off multi-hour
+# work implicitly. Run them with ``--experiment prep.<name>``.
 def _prep_experiments() -> list[Experiment]:
     exps: list[Experiment] = []
 
-    # --- Sequence-level SAE fingerprint caches (per benchmark) --------------
-    # Each encodes a benchmark's unique sequences once. Raw source -> seq cache.
-    _seq_prep = (
-        # name suffix, script, raw inputs, product cache
-        ("c3", "cache_esmc_fingerprints.py",
-         (C3_TRAIN_CSV, C3_VAL_CSV, C3_TEST_CSV), ESMC_DEFAULT_SEQ_CACHE),
-        ("cross_species", "cache_cross_species_esmc_fingerprints.py",
-         (CROSS_SPECIES_DIR,), CROSS_SPECIES_SEQ_CACHE),
-        ("bernett", "cache_bernett_esmc_fingerprints.py",
-         (BERNETT_DIR,), BERNETT_SEQ_CACHE),
-    )
-    for suffix, script, raw, product in _seq_prep:
-        exps.append(
-            Experiment(
-                name=f"prep.seq_cache.{suffix}",
-                layer="prep",
-                script=f"scripts/cache/{script}",
-                inputs=raw,
-                products=(product,),
-                auto=False,
-            )
-        )
-
-    # --- Protein-level SAE caches (participation / essentiality) ------------
-    # PRING human graph proteins (seeded from the Rosetta seq cache).
-    exps.append(
-        Experiment(
-            name="prep.protein_cache.pring_human",
-            layer="prep",
-            script="scripts/cache/cache_pring_human_esmc_sae.py",
-            inputs=(PRING_ROOT / "human" / "human_simple.fasta",),
-            products=(PRING_HUMAN_SAE_CACHE,),
-            auto=False,
-        )
-    )
-    # PRING held-out species -- these three products are exactly what gates
-    # protein.pring_cross_species_generalization; building them lights it up.
-    for species in PRING_SPECIES:
-        exps.append(
-            Experiment(
-                name=f"prep.protein_cache.pring_{species}",
-                layer="prep",
-                script="scripts/cache/cache_pring_species_esmc_sae.py",
-                args=("--species", species),
-                inputs=(PRING_ROOT / species / f"{species}_simple.fasta",),
-                products=(PRING_SPECIES_SAE_CACHES[species],),
-                auto=False,
-            )
-        )
-    # PIC human essentiality proteins. Pure-CPU slice out of the pooled seq
-    # caches (the PIC pickle supplies ids/sequences/labels; features come from
-    # the pooled ESM-C L60/L80 + ESM-2 L33 caches).
+    # PIC human essentiality: pure-CPU slice from pooled seq caches (generic slicer).
     exps.append(
         Experiment(
             name="prep.protein_cache.pic_human",
             layer="prep",
-            script="scripts/cache/cache_pic_human_esmc_sae.py",
-            inputs=(PIC_DATASET_PKL["human"], POOLED_ESMC_SEQ_CACHE, POOLED_ESM2_SEQ_CACHE),
+            script="scripts/prep/slice_dataset_protein_cache.py",
+            args=(
+                "--input", str(PIC_HUMAN_CSV),
+                "--sequence-cols", "sequence",
+                "--id-cols", "ID",
+                "--esmc-pooled", str(POOLED_ESMC_SEQ_CACHE),
+                "--esm2-pooled", str(POOLED_ESM2_SEQ_CACHE),
+                "--output", str(PIC_HUMAN_SAE_CACHE),
+            ),
+            inputs=(PIC_HUMAN_CSV, POOLED_ESMC_SEQ_CACHE, POOLED_ESM2_SEQ_CACHE),
             products=(PIC_HUMAN_SAE_CACHE,),
             auto=False,
         )
     )
 
-    # --- Residue-level SAE cache (interface grounding) ----------------------
-    # PDB_PPI positive interface chains. Builds LMDB-style dir under residue_caches.
+    # Residue-level SAE cache (interface grounding). Builds LMDB-style dir under
+    # residue_caches -- not the protein pooled pipeline.
     exps.append(
         Experiment(
             name="prep.residue_cache.pdb_ppi",
             layer="prep",
-            script="scripts/cache/cache_pdb_afdb_sae.py",
+            script="scripts/features/cache_pdb_afdb_sae.py",
             inputs=(PPI_DATA,),
             products=(PDB_PPI_SAE_CACHE,),
             auto=False,
@@ -278,7 +224,7 @@ def _prep_experiments() -> list[Experiment]:
 
 
 # ===========================================================================
-# Layer 1 -- PROTEIN (participation / hubness / essentiality)
+# Ladder 1 -- PROTEIN (participation / hubness / essentiality)
 # ===========================================================================
 def _protein_experiments() -> list[Experiment]:
     exps: list[Experiment] = []
@@ -391,7 +337,7 @@ def _protein_experiments() -> list[Experiment]:
 
 
 # ===========================================================================
-# Layer 2 -- PAIR (endpoint-additive / TabPFN / neg-sampling)
+# Ladder 2 -- PAIR (endpoint-additive / TabPFN / neg-sampling)
 # ===========================================================================
 def _pair_experiments() -> list[Experiment]:
     exps: list[Experiment] = []
@@ -490,7 +436,7 @@ def _pair_experiments() -> list[Experiment]:
 
 
 # ===========================================================================
-# Layer 3 -- RESIDUE (interface grounding)
+# Ladder 3 -- RESIDUE (interface grounding)
 # ===========================================================================
 def _residue_experiments() -> list[Experiment]:
     enrich_dir = RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos_sae"
@@ -568,7 +514,7 @@ def _interpretability_experiments() -> list[Experiment]:
         Experiment(
             name="interp.tabpfn_retrieval",
             layer="interpretability",
-            script="scripts/interpretability/explain_tabpfn_retrieval.py",
+            script="scripts/analysis/explain_tabpfn_retrieval.py",
             inputs=(
                 TABPFN_RANKING,
                 *_pair_index_inputs(C3_PAIR_INDEX_CACHES, C3_SAE_CACHE),

@@ -65,19 +65,23 @@ def parse_pdb(path):
     residue has no usable backbone. Cβ is **reconstructed from N/Cα/C** exactly as RF2 does
     (``util.get_Cb``), so glycine and missing-Cβ residues are handled uniformly. ``(None, None)``
     if the file is missing/unreadable/empty.
+
+    Residue keys match the other PDB parsers in this repo: ``(chain, resSeq, iCode)``.
+    For the usual single-chain extracted files this is equivalent to the historical
+    ``(resSeq, iCode)`` key; multi-chain or truncated ATOM lines no longer IndexError.
     """
     if not os.path.isfile(path):
         return None, None
-    # (resseq, icode) -> [aa1, {atom_name: xyz}]
+    # (chain, resseq, icode) -> [aa1, {atom_name: xyz}]
     residues = OrderedDict()
     try:
         with open(path) as fh:
             for line in fh:
-                if not line.startswith("ATOM"):
+                if not line.startswith("ATOM") or len(line) < 54:
                     continue
                 atom_name = line[12:16].strip()
                 resn = line[17:20].strip()
-                key = (line[22:26].strip(), line[26])  # (resSeq, iCode)
+                key = (line[21], line[22:26].strip(), line[26])  # (chain, resSeq, iCode)
                 if key not in residues:
                     residues[key] = [THREE2ONE.get(resn, "X"), {}]
                 try:

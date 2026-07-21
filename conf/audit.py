@@ -22,7 +22,7 @@ Contract for consumers
 -----------------------
 Import the default and pass it as the argparse ``default=`` (or use it directly
 where the literal was hard-coded and there is no flag, e.g.
-``src/eval/participation_metrics.py``'s degree-p90 threshold). Do NOT re-type the
+``src/eval/participation.py``'s degree-p90 threshold). Do NOT re-type the
 literal. A script that needs a different value still passes it via its flag; the
 constant is only the default.
 
@@ -35,15 +35,15 @@ dataclasses / CLI defaults, same rule as ``conf/model.py``.
 """
 from __future__ import annotations
 
-# === Participation / hubness (Layer 1) =====================================
+# === Participation / hubness (Ladder 1) =====================================
 # Quantile of the (train-set) participation-degree distribution above which a
 # protein is labelled "high participation" / hub. Default for the PRING and C3
 # high-participation classifiers (``--quantile``) and the degree-p90 threshold
-# reported by ``src/eval/participation_metrics.py`` (which had no flag: it hard-
+# reported by ``src/eval/participation.py`` (which had no flag: it hard-
 # coded 0.9, now sourced from here so the two definitions cannot drift).
 PARTICIPATION_QUANTILE = 0.9
 
-# === Interface grounding (Layer 3) =========================================
+# === Interface grounding (Ladder 3) =========================================
 # Positive interface residue pair: inter-chain Cβ-Cβ distance <= this, in Å.
 # Default for ``--contact-threshold`` in the enrichment / contact-compatibility
 # audits and the interface-mask builder.

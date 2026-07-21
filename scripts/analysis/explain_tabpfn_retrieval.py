@@ -22,15 +22,16 @@ from conf.paths import (
 )
 from src.runtime import setup_device
 from src.features.pairs import load_protein_feature_cache
-from src.interpretability.pair_probe import (
+from src.interp.pair_probe import (
     build_dense_sym_topk,
     fit_tabpfn_probe,
     materialize_pair_split,
     predict_proba_chunked,
     read_feature_ranking,
+    sae_dim_for_backbone,
     select_top_features,
 )
-from src.interpretability.tabpfn_retrieval import (
+from src.interp.tabpfn_retrieval import (
     choose_queries,
     decoder_attention_weights,
     embeddings_with_configs,
@@ -73,15 +74,16 @@ def main() -> None:
     args = parse_args()
     setup_device(args.device_id)
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    layer = resolve_backbone_layer(args.backbone, args.layer)
+    sae_dim = sae_dim_for_backbone(args.backbone)
     ranking = read_feature_ranking(args.ranking_csv)
     flat_features, feature_metadata = select_top_features(
-        ranking, args.top_k, args.top_k_mode
+        ranking, args.top_k, args.top_k_mode, sae_dim=sae_dim
     )
     (args.out_dir / f"selected_features_{args.top_k_mode}_k{args.top_k}.json").write_text(
         json.dumps(feature_metadata, indent=2)
     )
 
-    layer = resolve_backbone_layer(args.backbone, args.layer)
     print(f"[load] train/query via pair-index caches ({args.rep} {args.backbone}L{layer})", flush=True)
     protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
     train_a, train_b, train_y, train_original_indices = materialize_pair_split(
@@ -94,8 +96,8 @@ def main() -> None:
         backbone=args.backbone, layer=layer, max_rows=None,
         seed=args.seed + 1, return_indices=True,
     )
-    train_x = build_dense_sym_topk(train_a, train_b, flat_features)
-    query_x_all = build_dense_sym_topk(query_a, query_b, flat_features)
+    train_x = build_dense_sym_topk(train_a, train_b, flat_features, sae_dim=sae_dim)
+    query_x_all = build_dense_sym_topk(query_a, query_b, flat_features, sae_dim=sae_dim)
     del train_a, train_b, query_a, query_b
     gc.collect()
 
@@ -233,6 +235,7 @@ def main() -> None:
         "rep": args.rep,
         "backbone": args.backbone,
         "layer": layer,
+        "sae_dim": sae_dim,
         "ranking_csv": str(args.ranking_csv),
         "top_k_mode": args.top_k_mode,
         "top_k": args.top_k,

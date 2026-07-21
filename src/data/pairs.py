@@ -22,10 +22,12 @@ from conf.paths import (
     BERNETT_DIR,
     BERNETT_SPLIT_CSVS,
     CROSS_SPECIES_DIR,
+    PRING_CROSS_SPECIES,
     PRING_ROOT,
     RAPPPID_H5,
     RF2PPI_FASTA,
 )
+from src.data.pring_graph import METHODS as PRING_METHODS
 from src.data.sequences import read_fasta
 
 Pair = Tuple[Hashable, Hashable]
@@ -222,10 +224,6 @@ def load_bernett(split: str = "test", attach_seqs: bool = True) -> Benchmark:
             seqs[id_b] = clean_b
     labels = frame["labels"].astype(int).to_numpy()
     return Benchmark(f"bernett_{split}", pairs, labels, seqs)
-
-
-PRING_METHODS = ("BFS", "DFS", "RANDOM_WALK")
-PRING_CROSS_SPECIES = ("yeast", "ecoli", "arath")
 
 
 def _read_pring_pair_file(

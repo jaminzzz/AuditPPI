@@ -114,17 +114,27 @@ def run_baseline(model: str, rep: str, eval_name: str, *, top_k: int = 500,
     train_name = _train_name_for(eval_name)
 
     # ---- train (native) ----
+    import torch
+
     _, Atr, Btr, ytr, _ = _assemble(train_name, rep, backbone=backbone, layer=layer)
     sub = stratified_subsample(ytr, train_subsample, seed)
     if sub is not None:
-        import torch
         ti = torch.as_tensor(sub, dtype=torch.long)
         Atr, Btr, ytr = Atr.index_select(0, ti), Btr.index_select(0, ti), ytr[sub]
-    # stratified train/val split for early stopping
-    val_idx = stratified_subsample(ytr, max(1, int(len(ytr) * val_frac)), seed + 1)
+    # stratified train/val split for early stopping.
+    # stratified_subsample returns None when max_rows >= len(y); never index with None
+    # (numpy treats None as newaxis and would silently corrupt the split).
+    n_val = max(1, int(len(ytr) * val_frac))
+    val_idx = stratified_subsample(ytr, n_val, seed + 1)
+    if val_idx is None:
+        # Degenerate tiny train set: hold out a single stratified-or-first row.
+        if len(ytr) <= 1:
+            raise ValueError(
+                f"need at least 2 training pairs for a val split; got {len(ytr)}"
+            )
+        val_idx = np.array([0], dtype=np.int64)
     mask = np.ones(len(ytr), dtype=bool)
     mask[val_idx] = False
-    import torch
     mt = torch.as_tensor(np.flatnonzero(mask), dtype=torch.long)
     mv = torch.as_tensor(val_idx, dtype=torch.long)
     Atr_, Btr_, ytr_ = Atr.index_select(0, mt), Btr.index_select(0, mt), ytr[mask]

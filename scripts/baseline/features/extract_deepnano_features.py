@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Extract DeepNano mean/min/max features from a frozen PLM final layer.
 
-This baseline-only implementation supports ESM-2-650M layer 33 and ESM-C-6B
-layer 80. The historical layer-60 script remains unchanged at
-``scripts/cache/cache_deepnano_embeddings.py``.
+Baseline-only: ESM-2-650M layer 33 and ESM-C-6B final layer (80), written as
+``auditppi_protein_features_v1`` under ``DEEPNANO_DIR/deepnano_*_last/``.
+
+The older C3-only layer-60 cache builder lived at
+``scripts/cache/cache_deepnano_embeddings.py`` and was moved to
+``backups/scripts/cache/`` (legacy ``seq_cache.pt`` layout; no live consumers).
 """
 
 from __future__ import annotations

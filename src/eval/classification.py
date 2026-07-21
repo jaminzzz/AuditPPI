@@ -6,7 +6,9 @@ from typing import Optional
 
 import numpy as np
 from sklearn.metrics import (
+    accuracy_score,
     average_precision_score,
+    brier_score_loss,
     f1_score,
     precision_recall_curve,
     roc_auc_score,
@@ -122,14 +124,6 @@ def probe_classification_metrics(
     this assumes both classes are present (sklearn will raise otherwise) and
     reports calibration metrics that those protein classifiers do not need.
     """
-    from sklearn.metrics import (
-        accuracy_score,
-        average_precision_score,
-        brier_score_loss,
-        f1_score as sklearn_f1_score,
-        roc_auc_score,
-    )
-
     labels = np.asarray(labels)
     probabilities = np.asarray(probabilities)
     predictions = (probabilities >= 0.5).astype(np.int64)
@@ -138,7 +132,7 @@ def probe_classification_metrics(
         "auprc": float(average_precision_score(labels, probabilities)),
         "brier": float(brier_score_loss(labels, probabilities)),
         "ece": float(expected_calibration_error(labels, probabilities)),
-        "f1": float(sklearn_f1_score(labels, predictions)),
+        "f1": float(f1_score(labels, predictions)),
         "acc": float(accuracy_score(labels, predictions)),
     }
 

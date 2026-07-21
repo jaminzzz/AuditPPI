@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.interpretability.annotations import add_sae_annotations
+from src.interp.annotations import add_sae_annotations
 
 
 def endpoint_matrix(

@@ -35,8 +35,8 @@ from src.features.pairs import (
     materialize_pair_endpoints,
 )
 from src.runtime import seed_all
-from src.interpretability.annotations import add_sae_annotations
-from src.interpretability.ebm_effects import (
+from src.interp.annotations import add_sae_annotations
+from src.interp.ebm_effects import (
     ebm_feature_tables,
     endpoint_matrix,
 )
@@ -141,7 +141,8 @@ def main() -> None:
     val = load_split(args.rep, "val", protein_cache, backbone=args.backbone, layer=layer)
     test = load_split(args.rep, "test", protein_cache, backbone=args.backbone, layer=layer)
     print(
-        f"[data] train={train['y'].size:,} val={val['y'].size:,} test={test['y'].size:,} "
+        f"[data] rep={args.rep} backbone={args.backbone} layer={layer} "
+        f"train={train['y'].size:,} val={val['y'].size:,} test={test['y'].size:,} "
         f"dim={train['a'].shape[1]:,}",
         flush=True,
     )
@@ -173,13 +174,15 @@ def main() -> None:
         ebm, test, feature_ids, selected, args.rep
     )
     stem = (
-        f"c3_endpoint_additive_ebm_{args.rep}_top{args.top_k}_bins{args.max_bins}_"
-        f"rounds{args.max_rounds}_nobias_nointer"
+        f"c3_endpoint_additive_ebm_{args.rep}_{args.backbone}_l{layer}_"
+        f"top{args.top_k}_bins{args.max_bins}_rounds{args.max_rounds}_nobias_nointer"
     )
     result = {
         "model": "endpoint_additive_ebm_no_interactions_no_pair_bias",
         "formula": "logit(PPI(A,B)) = EBM_no_interactions(SAE_A)-intercept + EBM_no_interactions(SAE_B)-intercept",
         "rep": args.rep,
+        "backbone": args.backbone,
+        "layer": layer,
         "seed": args.seed,
         "top_k": int(args.top_k),
         "interactions": 0,

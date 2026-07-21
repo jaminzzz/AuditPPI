@@ -7,10 +7,10 @@ rather than a pair: PIC essentiality (binary) and PRING graph participation
 row — so they get their own :class:`ProteinDataset` contract here.
 
 Loaders are thin wrappers over the logic that already produced the manuscript
-numbers (``load_pic`` mirrors ``scripts/cache/cache_pic_human_esmc_sae.py``;
-``load_pring_participation`` reuses ``src.data.pring_graph``), so on-disk
-results are unaffected. Optional heavy dependencies (pandas) are imported only
-by the loader that needs them.
+numbers (``load_pic`` feeds the PIC CSV export / slicer path and the
+essentiality classifier; ``load_pring_participation`` reuses
+``src.data.pring_graph``), so on-disk results are unaffected. Optional heavy
+dependencies (pandas) are imported only by the loader that needs them.
 """
 
 from __future__ import annotations

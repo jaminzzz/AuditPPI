@@ -108,6 +108,9 @@ def load_pair_indices(
     pair_key: str = "auto",
     skip_missing: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, list[int], int]:
+    # Same field-size bump as manifest/baseline_io: pair CSVs can carry full
+    # sequences in query/text columns that exceed the default 128 KiB limit.
+    csv.field_size_limit(min(2**31 - 1, 10_000_000))
     delimiter = "\t" if path.suffix.lower() in {".tsv", ".tab"} else ","
     rows_a: list[int] = []
     rows_b: list[int] = []

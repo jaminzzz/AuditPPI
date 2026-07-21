@@ -31,17 +31,17 @@ from conf.model import (
     resolve_backbone_layer,
 )
 from conf.paths import RESULTS_PAIR, PRING_ROOT, PRING_HUMAN_SAE_CACHE
+from src.data.pring_graph import METHODS
 from src.eval.metrics import pair_score_metrics as metrics
 from src.experiments.results import dump_experiment
 from src.features.pairs import load_protein_feature_cache
 from src.features.protein_cache import representation_matrix
-from src.runtime import seed_all
 from src.models.architectures.endpoint_mlp import EndpointMLP
+from src.runtime import seed_all
 
 HUMAN_CACHE = PRING_HUMAN_SAE_CACHE
 OUT_DIR = RESULTS_PAIR / "pring_endpoint_additive_mlp_sae"
 
-METHODS = ("BFS", "DFS", "RANDOM_WALK")
 REPS = ("sae_max", "binary")
 
 

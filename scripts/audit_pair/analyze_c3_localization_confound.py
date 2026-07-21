@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Layer-2 audit: is the C3 semantic-concordance signal a subcellular-localization confound?
+"""Ladder-2 audit: is the C3 semantic-concordance signal a subcellular-localization confound?
 
-Builds on Layer-1 (analyze_c3_negative_sampling_bias.py), which showed positive
-pairs are more SAE-similar than negatives (cosine AUROC ~0.68). Layer-2 asks WHAT
+Builds on Ladder-1 (analyze_c3_negative_sampling_bias.py), which showed positive
+pairs are more SAE-similar than negatives (cosine AUROC ~0.68). Ladder-2 asks WHAT
 that similarity encodes, using UniProt subcellular-localization annotation:
 
   1. CO-LOCALIZATION bias — do positive pairs share compartments more often than

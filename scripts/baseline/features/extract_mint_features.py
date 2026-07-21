@@ -54,16 +54,21 @@ def main() -> None:
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
-    if args.device.startswith("cuda"):
-        device_id = str(args.device_id) if args.device_id is not None else pick_gpu()
-        os.environ["CUDA_VISIBLE_DEVICES"] = device_id
-        print(f"[device] CUDA_VISIBLE_DEVICES={device_id}", flush=True)
     # MINT is a vendored upstream tree under baselines/, not an installed package.
     ensure_on_sys_path(args.mint_root)
 
     import torch
     from mint.data import Alphabet
     from mint.model.esm2 import ESM2
+
+    if args.device.startswith("cuda"):
+        if not torch.cuda.is_available():
+            print("[device] CUDA requested but unavailable; falling back to cpu", flush=True)
+            args.device = "cpu"
+        else:
+            device_id = str(args.device_id) if args.device_id is not None else pick_gpu()
+            os.environ["CUDA_VISIBLE_DEVICES"] = device_id
+            print(f"[device] CUDA_VISIBLE_DEVICES={device_id}", flush=True)
 
     config = json.loads(args.config.read_text())
     layer = int(config["encoder_layers"])

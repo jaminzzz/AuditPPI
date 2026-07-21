@@ -36,10 +36,10 @@ Layout
     │       ├── residue_caches/ <-  per RESIDUE   pdb_ppi_pos_sae_cache_* (SaeCacheReader dir)
     │       └── feature_table/ESMC-SAE-Features/
     ├── results/               <- audit PRODUCTS (sibling of data/, not inside it)
-    │   ├── audit_protein/     <- Layer 1 participation / hubness / essentiality
-    │   ├── audit_pair/        <- Layer 2 endpoint-additive / TabPFN / neg-sampling
-    │   ├── audit_residue/     <- Layer 3 interface grounding
-    │   ├── analysis/          <- cross-layer analyses
+    │   ├── audit_protein/     <- Ladder 1 participation / hubness / essentiality
+    │   ├── audit_pair/        <- Ladder 2 endpoint-additive / TabPFN / neg-sampling
+    │   ├── audit_residue/     <- Ladder 3 interface grounding
+    │   ├── analysis/          <- cross-ladder analyses
     │   └── misc/              <- baseline fingerprint, figure intermediates
     ├── baselines/             <- in-project baseline repos (PIC/PRING/mint/...)
     ├── external/              <- external repositories, model assets, and data links
@@ -78,11 +78,11 @@ BASELINES = ROOT / "baselines"
 # All audit PRODUCTS live under the top-level results/ tree (sibling of data/,
 # not inside it: these are outputs, not inputs). results/ mirrors the three
 # audit scales plus two cross-cutting buckets:
-#   audit_protein/  Layer 1 -- sequence->participation / hubness / essentiality
-#   audit_pair/     Layer 2 -- endpoint-additive models, TabPFN, neg-sampling
-#   audit_residue/  Layer 3 -- interface grounding
-#   analysis/       cross-layer analyses (e.g. C3<->PRING feature overlap)
-#   misc/           baseline fingerprint, cross-layer figure data, spare caches
+#   audit_protein/  Ladder 1 -- sequence->participation / hubness / essentiality
+#   audit_pair/     Ladder 2 -- endpoint-additive models, TabPFN, neg-sampling
+#   audit_residue/  Ladder 3 -- interface grounding
+#   analysis/       cross-ladder analyses (e.g. C3<->PRING feature overlap)
+#   misc/           baseline fingerprint, cross-ladder figure data, spare caches
 # Source FASTA that used to sit under data/audit/rf2ppi_benchmark/ moved to
 # data/raw/ (it is a dataset input, not a result) -- see RF2PPI_* below.
 RESULTS = ROOT / "results"
@@ -184,7 +184,7 @@ C3_SAE_CACHE = PROTEIN_SAE_CACHES / "c3_protein_features_max1022.pt"
 CROSS_SPECIES_SAE_CACHE = PROTEIN_SAE_CACHES / "cross_species_protein_features_max1022.pt"
 BERNETT_SAE_CACHE = PROTEIN_SAE_CACHES / "bernett_protein_features_max1022.pt"
 
-# Layer-2 PPI prediction: benchmark family -> its v1 protein feature cache. One
+# Ladder-2 PPI prediction: benchmark family -> its v1 protein feature cache. One
 # cache per family holds every endpoint sequence across that family's splits, so
 # a single cache serves the family's native-train + eval protocol. PRING is
 # per-species (human train graph + yeast/ecoli/arath test graphs), so it maps to
@@ -241,7 +241,7 @@ SAE_SUPP_INPUTS = SAE / "supplementary_inputs"
 
 
 # === TabPFN artifacts =====================================================
-# TabPFN products are a Layer-2 (pair-scale) result, so they live under
+# TabPFN products are a Ladder-2 (pair-scale) result, so they live under
 # results/audit_pair/tabpfn/. feature_ranking_binary_sym.csv (TABPFN_RANKING)
 # is a product that later scripts also consume as a downstream INPUT.
 TABPFN = RESULTS_PAIR / "tabpfn"

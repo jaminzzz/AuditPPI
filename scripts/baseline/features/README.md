@@ -17,9 +17,6 @@ Only final-layer variants are produced:
 - ESM-2-650M layer 33;
 - ESM-C-6B layer 80.
 
-The original `scripts/cache/cache_deepnano_embeddings.py` is unchanged and
-remains available as historical provenance for the earlier layer-60 ESM-C run.
-
 ```bash
 # ESM-C final layer; E1 environment
 /data/wmzhu/anaconda3/envs/E1/bin/python \

@@ -3,7 +3,7 @@
 
 Run the cache stage in the E1 conda env because it loads the Biohub ESM-C/SAE models:
 
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/cache/cache_pdb_afdb_sae.py --device-id 7
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/features/cache_pdb_afdb_sae.py --device-id 7
 
 Design:
   * PDB_PPI is cached at extracted-chain level: ``ppi:<pdb_chain_id>``.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Layer-2 ROBUSTNESS: is the co-localization confound driven by generic compartments?
+"""Ladder-2 ROBUSTNESS: is the co-localization confound driven by generic compartments?
 
 Follow-up to analyze_c3_localization_confound.py. The baseline "shares >=1 compartment"
 definition is lenient: cytoplasm (50.6% of test proteins) and nucleus (45.8%) are so

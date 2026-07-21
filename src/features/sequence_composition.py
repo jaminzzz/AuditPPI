@@ -9,7 +9,7 @@ extractors as the model-free end of the feature package.
 
 from __future__ import annotations
 
-from typing import List, Mapping, Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 

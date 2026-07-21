@@ -68,8 +68,9 @@ ESMC_LAYERS: tuple[int, ...] = (60, 80)
 ESMC_DIM = 2560
 
 # SAE geometry. Declared expectation; builders read these from the checkpoint
-# (``w_enc.shape[0]`` for the codebook, ``layer.params.k`` for top-k) and should
-# assert equality rather than importing these as the source.
+# (``w_enc.shape[1]`` for the codebook — ``w_enc`` is ``(d_model, codebook)``,
+# ``layer.params.k`` for top-k) and should assert equality rather than importing
+# these as the source.
 ESMC_SAE_DIM = 16384                # codebook size (# features)
 ESMC_SAE_K = 64                     # top-k active features per residue (k64 codebook16384)
 

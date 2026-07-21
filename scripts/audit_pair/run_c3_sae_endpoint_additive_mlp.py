@@ -53,8 +53,8 @@ from src.experiments.results import dump_experiment
 from src.features.pairs import load_protein_feature_cache
 from src.features.protein_cache import representation_matrix
 from src.runtime import seed_all
-from src.interpretability.annotations import add_sae_annotations
-from src.interpretability.attribution import (
+from src.interp.annotations import add_sae_annotations
+from src.interp.attribution import (
     endpoint_gradient_input_attribution,
 )
 from src.models.architectures.endpoint_mlp import EndpointMLP

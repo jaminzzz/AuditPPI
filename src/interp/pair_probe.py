@@ -6,7 +6,7 @@ loading, and thin probe fit wrappers. Classification metrics live in
 (:func:`~src.eval.classification.probe_classification_metrics`,
 :func:`~src.eval.classification.expected_calibration_error`).
 
-Lives under :mod:`src.interpretability` (not :mod:`src.features`): these helpers
+Lives under :mod:`src.interp` (not :mod:`src.features`): these helpers
 assemble and score already-extracted pair embeddings; they do not extract or
 cache protein features.
 """
@@ -19,16 +19,55 @@ from pathlib import Path
 
 import numpy as np
 
-from conf.model import ESMC_SAE_DIM
+from conf.model import BACKBONE_SAE_DIM, DEFAULT_BACKBONE, ESMC_SAE_DIM
 from src.eval.classification import probe_classification_metrics
 from src.features.sampling import stratified_subsample
 from src.models.estimators.tabpfn import fit_tabpfn as _fit_tabpfn
 from src.models.estimators.tabpfn import predict_proba_chunked as _predict_proba_chunked
 from src.models.estimators.xgboost import fit_xgb
 
-SAE_DIM = ESMC_SAE_DIM  # SAE codebook size; kept as a module alias for back-compat
+SAE_DIM = ESMC_SAE_DIM  # ESM-C default; prefer sae_dim_for_backbone() / explicit sae_dim=
 BLOCK_PRODUCT = "AND(a*b)"
 BLOCK_ABSDIFF = "|a-b|"
+
+
+def sae_dim_for_backbone(backbone: str = DEFAULT_BACKBONE) -> int:
+    """Codebook width for the given backbone (ESM-C 16384 / ESM-2 10240)."""
+    try:
+        return int(BACKBONE_SAE_DIM[backbone])
+    except KeyError as exc:
+        raise ValueError(
+            f"unknown backbone {backbone!r}; expected one of {tuple(BACKBONE_SAE_DIM)}"
+        ) from exc
+
+
+def _apply_subsample(
+    emb_a,
+    emb_b,
+    labels_full: np.ndarray,
+    max_rows: int | None,
+    seed: int,
+    *,
+    return_indices: bool,
+):
+    """Shared class-stratified subsample tail for embedding / pair-index loaders."""
+    import torch
+
+    indices = stratified_subsample(labels_full, max_rows, seed)
+    if indices is None:
+        emb_a = emb_a.contiguous()
+        emb_b = emb_b.contiguous()
+        labels = labels_full
+        kept = np.arange(len(labels_full), dtype=np.int64)
+    else:
+        tensor_indices = torch.as_tensor(indices, dtype=torch.long)
+        emb_a = emb_a.index_select(0, tensor_indices).contiguous()
+        emb_b = emb_b.index_select(0, tensor_indices).contiguous()
+        labels = labels_full[indices]
+        kept = indices.astype(np.int64, copy=False)
+    if return_indices:
+        return emb_a, emb_b, labels, kept
+    return emb_a, emb_b, labels
 
 
 def load_pair_embedding_split(
@@ -38,31 +77,25 @@ def load_pair_embedding_split(
     *,
     return_indices: bool = False,
 ):
-    """Load endpoint tensors and labels from an AuditPPI embedding split.
+    """Load endpoint tensors and labels from a legacy ``{split}_embeddings.pt`` dump.
 
+    Prefer :func:`materialize_pair_split` for v1 pair-index + protein caches.
     When ``return_indices`` is true, also returns the kept original row indices
-    (identity when no subsample is applied). Shared by probe scripts and
-    :func:`src.interpretability.tabpfn_retrieval.load_split_with_indices`.
+    (identity when no subsample is applied). Still used by
+    :func:`src.interp.tabpfn_retrieval.load_split_with_indices`.
     """
     import torch
 
     payload = torch.load(path, map_location="cpu", weights_only=False)
     labels_full = payload["label"].numpy().astype(np.int64, copy=False)
-    indices = stratified_subsample(labels_full, max_rows, seed)
-    if indices is None:
-        emb_a = payload["emb_a"].contiguous()
-        emb_b = payload["emb_b"].contiguous()
-        labels = labels_full
-        kept = np.arange(len(labels_full), dtype=np.int64)
-    else:
-        tensor_indices = torch.as_tensor(indices, dtype=torch.long)
-        emb_a = payload["emb_a"].index_select(0, tensor_indices).contiguous()
-        emb_b = payload["emb_b"].index_select(0, tensor_indices).contiguous()
-        labels = labels_full[indices]
-        kept = indices.astype(np.int64, copy=False)
-    if return_indices:
-        return emb_a, emb_b, labels, kept
-    return emb_a, emb_b, labels
+    return _apply_subsample(
+        payload["emb_a"],
+        payload["emb_b"],
+        labels_full,
+        max_rows,
+        seed,
+        return_indices=return_indices,
+    )
 
 
 def materialize_pair_split(
@@ -84,8 +117,6 @@ def materialize_pair_split(
     subsample and returns the identical ``(emb_a, emb_b, labels[, kept])``
     contract the old per-rep ``{split}_embeddings.pt`` dumps did.
     """
-    import torch
-
     from src.features.pairs import load_pair_index_cache, materialize_pair_endpoints
 
     index_cache = load_pair_index_cache(index_cache_path)
@@ -93,21 +124,14 @@ def materialize_pair_split(
         index_cache, protein_cache, rep=rep, backbone=backbone, layer=layer
     )
     labels_full = labels_t.numpy().astype(np.int64, copy=False)
-    indices = stratified_subsample(labels_full, max_rows, seed)
-    if indices is None:
-        emb_a = emb_a.contiguous()
-        emb_b = emb_b.contiguous()
-        labels = labels_full
-        kept = np.arange(len(labels_full), dtype=np.int64)
-    else:
-        tensor_indices = torch.as_tensor(indices, dtype=torch.long)
-        emb_a = emb_a.index_select(0, tensor_indices).contiguous()
-        emb_b = emb_b.index_select(0, tensor_indices).contiguous()
-        labels = labels_full[indices]
-        kept = indices.astype(np.int64, copy=False)
-    if return_indices:
-        return emb_a, emb_b, labels, kept
-    return emb_a, emb_b, labels
+    return _apply_subsample(
+        emb_a,
+        emb_b,
+        labels_full,
+        max_rows,
+        seed,
+        return_indices=return_indices,
+    )
 
 
 def read_feature_ranking(path: Path) -> list[dict]:
@@ -275,20 +299,20 @@ def fit_logistic_probe(train_x, train_y, *, seed: int):
     return model
 
 
-def evaluate_species(
+def _score_pair_endpoints(
     model,
-    species: str,
-    embedding_dir: Path,
+    endpoint_a,
+    endpoint_b,
+    labels: np.ndarray,
     flat_features: list[int],
     *,
-    test_subsample: int | None,
-    seed: int,
     predict_batch_size: int,
+    sae_dim: int = SAE_DIM,
 ) -> dict:
-    endpoint_a, endpoint_b, labels = load_pair_embedding_split(
-        embedding_dir / f"{species}_embeddings.pt", test_subsample, seed + 17
+    """Build top-k sym features, score, and free intermediates (shared by evaluate_*)."""
+    matrix = build_dense_sym_topk(
+        endpoint_a, endpoint_b, flat_features, sae_dim=sae_dim
     )
-    matrix = build_dense_sym_topk(endpoint_a, endpoint_b, flat_features)
     del endpoint_a, endpoint_b
     gc.collect()
     probabilities = predict_proba_chunked(model, matrix, predict_batch_size)
@@ -300,6 +324,32 @@ def evaluate_species(
     del matrix, labels, probabilities
     gc.collect()
     return output
+
+
+def evaluate_species(
+    model,
+    species: str,
+    embedding_dir: Path,
+    flat_features: list[int],
+    *,
+    test_subsample: int | None,
+    seed: int,
+    predict_batch_size: int,
+    sae_dim: int = SAE_DIM,
+) -> dict:
+    """Legacy path: per-species ``{species}_embeddings.pt``. Prefer :func:`evaluate_species_v1`."""
+    endpoint_a, endpoint_b, labels = load_pair_embedding_split(
+        embedding_dir / f"{species}_embeddings.pt", test_subsample, seed + 17
+    )
+    return _score_pair_endpoints(
+        model,
+        endpoint_a,
+        endpoint_b,
+        labels,
+        flat_features,
+        predict_batch_size=predict_batch_size,
+        sae_dim=sae_dim,
+    )
 
 
 def evaluate_species_v1(
@@ -314,12 +364,15 @@ def evaluate_species_v1(
     test_subsample: int | None,
     seed: int,
     predict_batch_size: int,
+    sae_dim: int | None = None,
 ) -> dict:
     """v1 analogue of :func:`evaluate_species`.
 
     Scores a held-out species graph from its pair-index cache + the shared
     cross-species protein cache instead of a per-species ``{species}_embeddings.pt``.
     """
+    if sae_dim is None:
+        sae_dim = sae_dim_for_backbone(backbone)
     endpoint_a, endpoint_b, labels = materialize_pair_split(
         index_cache_path,
         protein_cache,
@@ -329,18 +382,15 @@ def evaluate_species_v1(
         max_rows=test_subsample,
         seed=seed + 17,
     )
-    matrix = build_dense_sym_topk(endpoint_a, endpoint_b, flat_features)
-    del endpoint_a, endpoint_b
-    gc.collect()
-    probabilities = predict_proba_chunked(model, matrix, predict_batch_size)
-    output = {
-        "n": int(len(labels)),
-        "pos_rate": float(labels.mean()),
-        **probe_classification_metrics(labels, probabilities),
-    }
-    del matrix, labels, probabilities
-    gc.collect()
-    return output
+    return _score_pair_endpoints(
+        model,
+        endpoint_a,
+        endpoint_b,
+        labels,
+        flat_features,
+        predict_batch_size=predict_batch_size,
+        sae_dim=sae_dim,
+    )
 
 
 __all__ = [
@@ -357,5 +407,6 @@ __all__ = [
     "materialize_pair_split",
     "predict_proba_chunked",
     "read_feature_ranking",
+    "sae_dim_for_backbone",
     "select_top_features",
 ]

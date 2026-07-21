@@ -30,7 +30,7 @@ Pair = Tuple[Hashable, Hashable]
 
 
 # ---------------------------------------------------------------------------
-# Layer 1 — model-free benchmark diagnostic
+# Ladder 1 — model-free benchmark diagnostic
 # ---------------------------------------------------------------------------
 def benchmark_diagnostic(pairs: Sequence[Pair], labels: Sequence[int]) -> Dict:
     """Participation diagnostic for one benchmark. Mirrors probe_participation_bias.py:analyze."""
@@ -54,7 +54,7 @@ def benchmark_diagnostic(pairs: Sequence[Pair], labels: Sequence[int]) -> Dict:
 
 
 # ---------------------------------------------------------------------------
-# Layer 2 — PRING participation-workflow evaluation
+# Ladder 2 — PRING participation-workflow evaluation
 # ---------------------------------------------------------------------------
 def round_or_none(value: Optional[float], ndigits: int = 4) -> Optional[float]:
     if value is None or np.isnan(value):

@@ -8,9 +8,9 @@ to decompose *why* a predictor scores a pair as interacting, across three scales
 
 | Scale | Question | Confounded signal it isolates |
 |-------|----------|-------------------------------|
-| **Protein** (Layer 1) | Is node degree / "hub-ness" recoverable from sequence alone? | network-topology shortcut |
-| **Pair** (Layer 2) | Does pairwise SAE-feature concordance inflate a leakage-controlled benchmark, and is it a retrieval shortcut? | semantic concordance / negative-sampling bias |
-| **Residue** (Layer 3) | Are benchmark-important features actually interface-specific, or just surface propensity? | genuine interface grounding |
+| **Protein** (Ladder 1) | Is node degree / "hub-ness" recoverable from sequence alone? | network-topology shortcut |
+| **Pair** (Ladder 2) | Does pairwise SAE-feature concordance inflate a leakage-controlled benchmark, and is it a retrieval shortcut? | semantic concordance / negative-sampling bias |
+| **Residue** (Ladder 3) | Are benchmark-important features actually interface-specific, or just surface propensity? | genuine interface grounding |
 
 The framework is **diagnostic, not a new PPI scorer**: it re-examines existing
 benchmark splits, cached representations, and trained-model artifacts (feature
@@ -34,17 +34,17 @@ AuditPPI/
 │       ├── residue_caches/ Residue-level SAE cache for the interface-grounding audit.
 │       └── feature_table/  ESMC-SAE feature reference table.
 ├── results/               Audit PRODUCTS (sibling of data/, not inside it):
-│   ├── audit_protein/     Layer 1 -- participation / hubness / essentiality.
-│   ├── audit_pair/        Layer 2 -- endpoint-additive, TabPFN, neg-sampling.
-│   ├── audit_residue/     Layer 3 -- interface grounding.
-│   ├── analysis/          Cross-layer analyses (e.g. C3↔PRING feature overlap).
-│   └── misc/              Baseline fingerprint, cross-layer figure data, spare caches.
+│   ├── audit_protein/     Ladder 1 -- participation / hubness / essentiality.
+│   ├── audit_pair/        Ladder 2 -- endpoint-additive, TabPFN, neg-sampling.
+│   ├── audit_residue/     Ladder 3 -- interface grounding.
+│   ├── analysis/          Cross-ladder analyses (e.g. C3↔PRING feature overlap).
+│   └── misc/              Baseline fingerprint, cross-ladder figure data, spare caches.
 ├── external/              Symlinks to shared read-only data lakes (see below).
 ├── src/
 │   ├── data/              Benchmark loaders, PRING graph labels, sequence I/O, and sparse SAE cache codec.
 │   ├── eval/              Scoring metrics + participation-oracle diagnostics.
 │   ├── features/          Unified ESM-C/ESM-2 protein features + pair assembly.
-│   ├── interpretability/  SAE/model attribution, pair probes, TabPFN retrieval, feature explanations.
+│   ├── interp/            SAE/model attribution, pair probes, TabPFN retrieval, feature explanations.
 │   ├── models/            Reusable architectures + external estimator integrations.
 │   ├── runtime/           Device selection, seeding, and vendored-import setup.
 │   ├── experiments/       Result envelope, experiment registry, run provenance.
@@ -145,28 +145,22 @@ FlashPPI, MINT, …). Feature entry points live under `scripts/baseline/features
 see its README for the different per-protein versus pair-conditioned cache
 contracts. Train/eval runners that score those features will land here later.
 
-**`analysis/`** — executable statistical analyses over cached features,
-predictions, and benchmarks (e.g. cross-species TabPFN top-k probes, model-free
+**`analysis/`** — executable statistical analyses and explanation workflows over
+cached features, predictions, and benchmarks (e.g. cross-species TabPFN top-k
+probes, TabPFN retrieval attention / active-feature overlap, model-free
 participation diagnostics). Shared probe helpers live in
-`src/interpretability/pair_probe.py`.
+`src/interp/` (`pair_probe`, `tabpfn_retrieval`, attribution, EBM
+effects).
 
-**`interpretability/`** — executable model/SAE explanation workflows such as
-TabPFN retrieval attention and active-feature overlap. Reusable algorithms live
-in `src/interpretability/` (including `pair_probe`, `tabpfn_retrieval`,
-attribution, and EBM effects).
-
-**`audit_protein/`** (Layer 1) — sequence→participation oracles and
+**`audit_protein/`** (Ladder 1) — sequence→participation oracles and
 high-participation classifiers on PRING / C3 / PIC.
 
-**`audit_pair/`** (Layer 2) — C3 endpoint-additive models (EBM / MLP),
+**`audit_pair/`** (Ladder 2) — C3 endpoint-additive models (EBM / MLP),
 PPI fingerprinting, and prediction on C1/C2/C3 and cross-species benchmarks, PRING and Bernett (xgboost),
 TabPFN retrieval-attention audit, negative-sampling & localization confound analyses.
 
-**`audit_residue/`** (Layer 3) — interface SAE enrichment (with surface-matched control)
+**`audit_residue/`** (Ladder 3) — interface SAE enrichment (with surface-matched control)
 and contact-pair compatibility on PDB_PPI structures.
-
-**`smoke/`** — CPU plumbing check for the experiment matrix / runner / envelope
-(`scripts/smoke/smoke_runner.py`).
 
 **`run_experiments.py`** — the matrix runner. Declares every audit cell in
 `src/experiments/registry.py`, probes readiness from declared inputs, runs
@@ -187,7 +181,7 @@ PY=/data/wmzhu/anaconda3/envs/E1/bin/python
 $PY -m pip install -e . --no-deps
 
 # 2. plumbing smoke: registry coherence + runner dry-run + envelope (no GPU)
-$PY scripts/smoke/smoke_runner.py
+$PY -m pytest tests/test_smoke_runner.py
 
 # 3. inspect / dry-run the experiment matrix (readiness-probed, no execution)
 $PY scripts/run_experiments.py --all --dry-run
@@ -198,8 +192,9 @@ $PY scripts/run_experiments.py --experiment pair.c3_endpoint_additive_mlp.sae_ma
 $PY scripts/run_experiments.py --layer protein --skip-existing
 $PY scripts/run_experiments.py --all --skip-existing
 
-# 5. expensive GPU cache builders are auto=False; run them explicitly if needed
-$PY scripts/run_experiments.py --experiment prep.seq_cache.c3
+# 5. remaining prep cells are auto=False; run them explicitly if needed
+#    (pooled seq caches are already built; PIC/residue builders are the live prep cells)
+$PY scripts/run_experiments.py --experiment prep.protein_cache.pic_human
 ```
 
 After `pip install -e .`, `conf` and `src` resolve from any working directory —

@@ -8,14 +8,14 @@ from pathlib import Path
 
 import numpy as np
 
-from src.interpretability.pair_probe import load_pair_embedding_split
+from src.interp.pair_probe import load_pair_embedding_split
 
 
 def load_split_with_indices(path: Path, max_rows: int | None, seed: int):
     """Load an embedding split and return kept original row indices.
 
     Thin wrapper over
-    :func:`src.interpretability.pair_probe.load_pair_embedding_split` with
+    :func:`src.interp.pair_probe.load_pair_embedding_split` with
     ``return_indices=True`` so retrieval audits can map subsampled rows back to
     the source CSV.
     """

@@ -19,7 +19,7 @@ Module map
 - ``baseline_io`` — independent baseline pair CSV + cache write.
 
 Pair-probe ranking / sym top-k / fit wrappers live in
-:mod:`src.interpretability.pair_probe` (not here).
+:mod:`src.interp.pair_probe` (not here).
 """
 
 from src.data.sequences import normalize_sequence

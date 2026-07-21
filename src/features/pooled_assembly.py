@@ -263,9 +263,10 @@ def prepare_features(
     if not resolved_cache.exists():
         fallback = best_existing_fallback_cache()
         hint = (
-            "Build a PRING-specific cache with "
-            "scripts/cache/cache_pring_human_esmc_sae.py, or pass --cache-path "
-            "to an existing pooled cache."
+            "Build a PRING v1 protein cache with "
+            "scripts/prep/slice_dataset_protein_cache.py (from the pooled "
+            "seq caches under data/sae/seq_caches), or pass --cache-path to "
+            "an existing protein_features_max1022.pt cache."
         )
         if fallback is not None:
             hint += f" Best existing fallback detected: {fallback}"

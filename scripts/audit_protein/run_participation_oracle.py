@@ -6,7 +6,7 @@ predicts on the disjoint C3 test proteins, and scores pairs by min(t̂_A, t̂_B)
 only on train+val proteins and never sees test labels, so its pair-level AUROC is an honest measure of
 how far a label-free, sequence-only predictor can recover the participation structure.
 
-The workflow body lives here (not in a src package): it is one Layer-1 audit
+The workflow body lives here (not in a src package): it is one Ladder-1 audit
 orchestration that composes the shared data/features/models/eval primitives.
 
 Run: /data/wmzhu/anaconda3/envs/E1/bin/python scripts/audit_protein/run_participation_oracle.py

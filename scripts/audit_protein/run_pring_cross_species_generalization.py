@@ -10,7 +10,7 @@ Definition:
   the reported cross-species signal is the rank-based test Spearman and
   high-degree AUROC.
 
-The workflow body lives here (not in a src package): it is one Layer-1 audit
+The workflow body lives here (not in a src package): it is one Ladder-1 audit
 orchestration that composes the shared data/features/models/eval primitives.
 
 Examples:
@@ -19,7 +19,8 @@ Examples:
     scripts/audit_protein/run_pring_cross_species_generalization.py \
     --feature-kind sequence_basic
 
-  # SAE features (needs per-species caches built by cache_pring_species_esmc_sae.py):
+  # SAE features (needs per-species v1 protein caches from
+  # scripts/prep/slice_dataset_protein_cache.py):
   /data/wmzhu/anaconda3/envs/E1/bin/python \
     scripts/audit_protein/run_pring_cross_species_generalization.py \
     --feature-kind sae_max --model-kind xgboost
@@ -138,8 +139,8 @@ def run_pring_cross_species_generalization(
         if not cache_path.exists():
             raise FileNotFoundError(
                 f"human training cache not found: {cache_path}. Build it with "
-                "scripts/cache/cache_pring_human_esmc_sae.py "
-                "(or pass --train-cache-path)."
+                "scripts/prep/slice_dataset_protein_cache.py from the pooled "
+                "seq caches (or pass --train-cache-path)."
             )
         train_cache = load_pooled_payload(cache_path)
 
@@ -239,8 +240,8 @@ def run_pring_cross_species_generalization(
             if not cache_path.exists():
                 raise FileNotFoundError(
                     f"[{species_name}] species cache not found: {cache_path}. "
-                    "Build it with scripts/cache/cache_pring_species_esmc_sae.py "
-                    f"--species {species_name}."
+                    "Build it with scripts/prep/slice_dataset_protein_cache.py "
+                    f"(species={species_name}) from the pooled seq caches."
                 )
             species_cache = load_pooled_payload(cache_path)
 

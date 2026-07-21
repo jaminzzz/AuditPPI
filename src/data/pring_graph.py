@@ -3,7 +3,7 @@
 Reads the PRING reference graphs (``{species}_graph.pkl`` / ``{species}_ppi.txt``)
 and derives per-protein degree and normalized participation ``t(p)``, plus the
 human BFS/DFS/RANDOM_WALK protein splits. This is the data-layer upstream of
-``src.data.proteins.load_pring_participation`` and the Layer-1 participation
+``src.data.proteins.load_pring_participation`` and the Ladder-1 participation
 workflows; it derives labels from a dataset and therefore lives beside the other
 protein-level loaders here rather than in an audit package.
 """
@@ -13,11 +13,12 @@ from __future__ import annotations
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 from conf.paths import PRING_ROOT
 
 Pair = Tuple[str, str]
+# Canonical PRING human split methods; re-exported as PRING_METHODS in pairs.py.
 METHODS = ("BFS", "DFS", "RANDOM_WALK")
 SELF_LOOP_MODES = ("drop", "once")
 

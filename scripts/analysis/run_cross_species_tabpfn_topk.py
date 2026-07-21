@@ -24,7 +24,7 @@ from src.runtime import setup_device
 from src.eval.classification import probe_classification_metrics
 from src.features.pairs import load_protein_feature_cache
 from src.features.sampling import stratified_subsample
-from src.interpretability.pair_probe import (
+from src.interp.pair_probe import (
     build_dense_sym_topk,
     evaluate_species_v1,
     fit_logistic_probe,
@@ -33,6 +33,7 @@ from src.interpretability.pair_probe import (
     materialize_pair_split,
     predict_proba_chunked,
     read_feature_ranking,
+    sae_dim_for_backbone,
     select_top_features,
 )
 
@@ -60,7 +61,6 @@ def parse_args() -> argparse.Namespace:
         default=["tabpfn", "xgb", "logreg"],
     )
     parser.add_argument("--train-subsample", type=int, default=100000)
-    parser.add_argument("--val-subsample", type=int, default=None)
     parser.add_argument("--test-subsample", type=int, default=None)
     parser.add_argument("--test-species", nargs="+", default=DEFAULT_TESTS)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
@@ -83,10 +83,11 @@ def main() -> None:
     all_results = []
 
     layer = resolve_backbone_layer(args.backbone, args.layer)
+    sae_dim = sae_dim_for_backbone(args.backbone)
     print(f"[ranking] {args.ranking_csv}", flush=True)
     print(
         f"[load] cross-species human_train via pair-index cache "
-        f"({args.rep} {args.backbone}L{layer})",
+        f"({args.rep} {args.backbone}L{layer} sae_dim={sae_dim})",
         flush=True,
     )
     protein_cache = load_protein_feature_cache(CROSS_SPECIES_SAE_CACHE)
@@ -124,14 +125,15 @@ def main() -> None:
 
     for top_k in args.top_k:
         flat_features, feature_metadata = select_top_features(
-            ranking, top_k, args.top_k_mode
+            ranking, top_k, args.top_k_mode, sae_dim=sae_dim
         )
         print(
-            f"[topk] mode={args.top_k_mode} k={top_k} input_dim={len(flat_features)}",
+            f"[topk] mode={args.top_k_mode} k={top_k} input_dim={len(flat_features)} "
+            f"sae_dim={sae_dim}",
             flush=True,
         )
-        train_x = build_dense_sym_topk(train_a, train_b, flat_features)
-        val_x = build_dense_sym_topk(val_a, val_b, flat_features)
+        train_x = build_dense_sym_topk(train_a, train_b, flat_features, sae_dim=sae_dim)
+        val_x = build_dense_sym_topk(val_a, val_b, flat_features, sae_dim=sae_dim)
         feature_file = args.out_dir / f"selected_features_{args.top_k_mode}_k{top_k}.json"
         feature_file.write_text(json.dumps(feature_metadata, indent=2))
 
@@ -180,6 +182,7 @@ def main() -> None:
                     test_subsample=args.test_subsample,
                     seed=args.seed,
                     predict_batch_size=args.predict_batch_size,
+                    sae_dim=sae_dim,
                 )
             mean_auroc = float(np.mean([item["auroc"] for item in species_metrics.values()]))
             mean_auprc = float(np.mean([item["auprc"] for item in species_metrics.values()]))
@@ -189,6 +192,7 @@ def main() -> None:
                 "rep": args.rep,
                 "backbone": args.backbone,
                 "layer": layer,
+                "sae_dim": sae_dim,
                 "pair_mode": "sym",
                 "top_k_mode": args.top_k_mode,
                 "top_k": top_k,

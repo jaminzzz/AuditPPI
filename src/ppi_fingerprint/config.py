@@ -1,6 +1,6 @@
 """Configuration for the v1 PPI fingerprint baseline protocol.
 
-The Layer-2 baseline reads the per-dataset ``auditppi_protein_features_v1``
+The Ladder-2 baseline reads the per-dataset ``auditppi_protein_features_v1``
 protein caches (``conf.paths.PPI_PREDICTION_CACHES``): one cache per benchmark
 family holds every endpoint sequence across that family's splits, with BOTH
 backbone lines (ESM-C L60/L80 + ESM-2 L33) and all four channels in one payload.

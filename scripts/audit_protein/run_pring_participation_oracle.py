@@ -6,7 +6,7 @@ Definition:
   (full-graph degree / participation), then train and evaluate under PRING's
   protein-disjoint Human BFS/DFS/RANDOM_WALK splits.
 
-The workflow body lives here (not in a src package): it is one Layer-1 audit
+The workflow body lives here (not in a src package): it is one Ladder-1 audit
 orchestration that composes the shared data/features/models/eval primitives.
 
 Examples:
@@ -25,7 +25,13 @@ from pathlib import Path
 
 import numpy as np
 
-from conf.model import DEFAULT_SEED
+from conf.model import (
+    BACKBONE_LAYERS,
+    BACKBONES,
+    DEFAULT_BACKBONE,
+    DEFAULT_SEED,
+    resolve_backbone_layer,
+)
 from conf.paths import (
     PRING_ROOT,
     PRING_HUMAN_SAE_CACHE as DEFAULT_PRING_CACHE,
@@ -73,6 +79,8 @@ def run_pring_participation_oracle(
     seed: int = DEFAULT_SEED,
     kmer: int = 2,
     feature_kind: str = "sequence_basic",
+    backbone: str = DEFAULT_BACKBONE,
+    layer: int | None = None,
     cache_path: Path | None = None,
     model_kind: str = "xgboost",
     calibration: str = "log_linear",
@@ -98,6 +106,7 @@ def run_pring_participation_oracle(
         raise ValueError(f"model_kind must be one of {MODEL_KINDS}")
     if pair_eval not in PAIR_EVALS:
         raise ValueError(f"pair_eval must be one of {PAIR_EVALS}")
+    resolved_layer = resolve_backbone_layer(backbone, layer)
 
     labels = full_graph_participation_labels(
         root=root, self_loop_mode=self_loop_mode
@@ -125,6 +134,8 @@ def run_pring_participation_oracle(
         val_frac=val_frac,
         seed=seed,
         cache_path=cache_path,
+        backbone=backbone,
+        layer=layer,
     )
     train_x, val_x, test_x = (
         feature_pack.Xtr,
@@ -357,8 +368,11 @@ def run_pring_participation_oracle(
         "pair_metrics": pair_metrics,
         "feature_importance": importance_summary,
     }
+    result["backbone"] = backbone
+    result["layer"] = int(resolved_layer)
+
     print(
-        f"[PRING.{method}.{feature_kind}.{model_kind}] "
+        f"[PRING.{method}.{feature_kind}.{backbone}L{resolved_layer}.{model_kind}] "
         f"test Spearman={result['node_metrics']['test']['spearman_pred_degree']} "
         f"high_deg_AUROC={result['node_metrics']['test']['high_degree_auroc']} "
         f"n_train/val/test={len(train_ids)}/{len(val_ids)}/{len(test_ids)}",
@@ -367,7 +381,10 @@ def run_pring_participation_oracle(
 
     if write:
         out_dir.mkdir(parents=True, exist_ok=True)
-        stem = f"pring_human_{method.lower()}_{feature_kind}_{model_kind}"
+        stem = (
+            f"pring_human_{method.lower()}_{feature_kind}_"
+            f"{backbone}_l{resolved_layer}_{model_kind}"
+        )
         dump_experiment(
             out_dir / f"{stem}.json",
             task="protein.participation_oracle",
@@ -425,7 +442,20 @@ def main() -> None:
         "--cache-path",
         type=Path,
         default=DEFAULT_PRING_CACHE,
-        help="pooled ESM-C/SAE cache with seq2idx and preferably uniprotid2idx",
+        help="v1 protein feature cache with seq2idx and preferably uniprotid2idx",
+    )
+    p.add_argument(
+        "--backbone",
+        choices=BACKBONES,
+        default=DEFAULT_BACKBONE,
+        help="pLM line to read from the v1 feature cache (esmc or esm2).",
+    )
+    p.add_argument(
+        "--layer",
+        type=int,
+        choices=sorted({layer for layers in BACKBONE_LAYERS.values() for layer in layers}),
+        default=None,
+        help="Backbone layer; defaults to the backbone's default (ESM-C 60, ESM-2 33).",
     )
     p.add_argument("--model-kind", default="xgboost", choices=MODEL_KINDS)
     p.add_argument("--calibration", choices=["log_linear", "scale", "none"], default="log_linear")
@@ -466,6 +496,8 @@ def main() -> None:
                 seed=args.seed,
                 kmer=args.kmer,
                 feature_kind=feature_kind,
+                backbone=args.backbone,
+                layer=args.layer,
                 cache_path=args.cache_path,
                 model_kind=args.model_kind,
                 calibration=args.calibration,
@@ -491,6 +523,8 @@ def main() -> None:
                 "n_test": _metric(res, ["split", "n_test_nodes"]),
                 "missing_train_features": _metric(res, ["features", "missing_train_features"]),
                 "missing_test_features": _metric(res, ["features", "missing_test_features"]),
+                "backbone": _metric(res, ["backbone"]),
+                "layer": _metric(res, ["layer"]),
                 "pair_human_test_auroc": _metric(
                     res, ["pair_metrics", "human_test_ppi", "pred_min_t_auroc"]
                 ),
@@ -503,7 +537,8 @@ def main() -> None:
     print(json.dumps(summary, indent=2), flush=True)
     if not args.no_write:
         args.out_dir.mkdir(parents=True, exist_ok=True)
-        stem = f"pring_human_{args.model_kind}_summary"
+        resolved_layer = resolve_backbone_layer(args.backbone, args.layer)
+        stem = f"pring_human_{args.model_kind}_{args.backbone}_l{resolved_layer}_summary"
         dump_experiment(
             args.out_dir / f"{stem}.json",
             task="protein.participation_oracle",

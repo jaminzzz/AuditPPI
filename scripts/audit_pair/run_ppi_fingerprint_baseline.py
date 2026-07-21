@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Layer-2 PPI prediction from pooled per-protein SAE fingerprints.
+"""Ladder-2 PPI prediction from pooled per-protein SAE fingerprints.
 
 Trains a classifier (XGB / TabPFN / dual-tower MLP) on a pooled representation
 (``binary`` / ``sae_max`` / ``esmc_mean``) of each benchmark's **own** native
@@ -40,6 +40,8 @@ from conf.model import (
     DEFAULT_SEED,
     resolve_backbone_layer,
 )
+from conf.paths import PRING_CROSS_SPECIES
+from src.data.pring_graph import METHODS as PRING_METHODS
 from src.experiments.results import dump_experiment
 from src.ppi_fingerprint.config import (
     MODEL_NAMES as MODELS,
@@ -51,9 +53,7 @@ from src.runtime.device import pick_free_gpu
 
 # Each family -> the eval benchmark name(s) its native-train protocol scores.
 # PRING is per-method (human train/test share a sampling method) plus the three
-# zero-shot cross-species test graphs.
-PRING_METHODS = ("BFS", "DFS", "RANDOM_WALK")
-PRING_CROSS_SPECIES = ("yeast", "ecoli", "arath")
+# zero-shot cross-species test graphs (PRING_METHODS / PRING_CROSS_SPECIES above).
 
 
 def family_evals(family: str) -> list[str]:

@@ -23,8 +23,14 @@ def stratified_subsample(y: np.ndarray, max_rows: Optional[int], seed: int) -> O
     classes = np.unique(y)
     for i, cls in enumerate(classes):
         idx = np.flatnonzero(y == cls)
-        n_take = remaining if i == len(classes) - 1 else min(
-            int(round(max_rows * len(idx) / len(y))), len(idx), remaining)
+        if i == len(classes) - 1:
+            # Last class absorbs any remainder from rounding, but never more
+            # than its population (else choice(..., replace=False) raises).
+            n_take = min(remaining, len(idx))
+        else:
+            n_take = min(int(round(max_rows * len(idx) / len(y))), len(idx), remaining)
+        if n_take <= 0:
+            continue
         chosen.append(rng.choice(idx, size=n_take, replace=False))
         remaining -= n_take
     out = np.concatenate(chosen)

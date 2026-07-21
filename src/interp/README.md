@@ -1,14 +1,17 @@
 # Interpretability package
 
-`src.interpretability` contains reusable methods for explaining model outputs
-and SAE-feature behavior. Command-line entry points belong under
-`scripts/interpretability/`.
+`src.interp` contains reusable methods for explaining model outputs
+and SAE-feature behavior. Command-line entry points live under
+`scripts/analysis/` (e.g. `explain_tabpfn_retrieval.py`,
+`run_cross_species_tabpfn_topk.py`).
 
 Current modules:
 
 - `pair_probe.py`: compact SAE pair-feature probes (ranking I/O, sym top-k
-  materialization, embedding-split load, thin fit wrappers). Used by analysis
-  and TabPFN retrieval scripts; metrics live in `src.eval.classification`.
+  materialization, embedding-split load, thin fit wrappers). Product/absdiff
+  column offsets use the backbone codebook width via `sae_dim=` /
+  `sae_dim_for_backbone` (ESM-C 16384, ESM-2 10240). Used by analysis and
+  TabPFN retrieval scripts; metrics live in `src.eval.classification`.
 - `tabpfn_retrieval.py`: TabPFN ensemble embeddings, decoder attention,
   retrieval-neighbor scoring, and active SAE-feature overlap.
 - `attribution.py`: endpoint-level gradient × input aggregation.

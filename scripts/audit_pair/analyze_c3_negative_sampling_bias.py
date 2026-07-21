@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Layer-1 audit: characterize the C3 negative-sampling construction bias.
+"""Ladder-1 audit: characterize the C3 negative-sampling construction bias.
 
 The C3 benchmark hands us `(pair, label)` with no record of HOW each negative was
 constructed. This script reverse-engineers the construction bias from the data itself,

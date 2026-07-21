@@ -36,14 +36,15 @@ from conf.paths import (
 from src.runtime import setup_device
 from src.eval.classification import probe_classification_metrics as metrics
 from src.features.pairs import load_protein_feature_cache
-from src.interpretability.pair_probe import (
+from src.interp.pair_probe import (
     build_dense_sym_topk,
     materialize_pair_split,
     predict_proba_chunked,
     read_feature_ranking as read_ranking,
+    sae_dim_for_backbone,
     select_top_features,
 )
-from src.interpretability.tabpfn_retrieval import (
+from src.interp.tabpfn_retrieval import (
     decoder_attention_weights,
     embeddings_with_configs,
     input_overlap_stats,
@@ -292,16 +293,19 @@ def main() -> int:
 
         tabpfn_device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    layer = resolve_backbone_layer(args.backbone, args.layer)
+    sae_dim = sae_dim_for_backbone(args.backbone)
     ranking = read_ranking(args.ranking_csv)
-    flat_features, feature_meta = select_top_features(ranking, args.top_k, args.top_k_mode)
+    flat_features, feature_meta = select_top_features(
+        ranking, args.top_k, args.top_k_mode, sae_dim=sae_dim
+    )
     (out_dir / f"selected_features_{args.top_k_mode}_k{args.top_k}.json").write_text(
         json.dumps(feature_meta, indent=2)
     )
 
-    layer = resolve_backbone_layer(args.backbone, args.layer)
     print(
         f"[load] train/{args.query_split} via C3 pair-index caches "
-        f"({args.rep} {args.backbone}L{layer})",
+        f"({args.rep} {args.backbone}L{layer} sae_dim={sae_dim})",
         flush=True,
     )
     protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
@@ -321,8 +325,8 @@ def main() -> int:
     else:
         query_positions = np.arange(len(yq), dtype=np.int64)
 
-    Xtr = build_dense_sym_topk(atr, btr, flat_features)
-    Xq_all = build_dense_sym_topk(aq, bq, flat_features)
+    Xtr = build_dense_sym_topk(atr, btr, flat_features, sae_dim=sae_dim)
+    Xq_all = build_dense_sym_topk(aq, bq, flat_features, sae_dim=sae_dim)
     del atr, btr, aq, bq
     gc.collect()
     print(f"[data] train={Xtr.shape} {args.query_split}={Xq_all.shape} audited_queries={len(query_positions)}", flush=True)
@@ -557,6 +561,10 @@ def main() -> int:
     summary = {
         "dataset": "c3",
         "query_split": args.query_split,
+        "rep": args.rep,
+        "backbone": args.backbone,
+        "layer": layer,
+        "sae_dim": sae_dim,
         "n_train": int(len(ytr)),
         "n_queries_total": int(len(yq)),
         "n_queries": int(len(query_rows)),

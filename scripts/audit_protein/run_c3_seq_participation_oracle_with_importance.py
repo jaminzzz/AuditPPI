@@ -182,8 +182,19 @@ def main() -> None:
 
     rng = np.random.default_rng(args.seed)
     perm = rng.permutation(len(kept))
-    n_hold = max(1, int(len(perm) * args.holdout_frac))
+    n_total = len(perm)
+    if n_total < 2:
+        raise RuntimeError(
+            f"need at least 2 train proteins for holdout split, got {n_total}"
+        )
+    # Cap holdout so train is never empty when holdout_frac is large / n is tiny.
+    n_hold = min(max(1, int(n_total * args.holdout_frac)), n_total - 1)
     hold, tr = perm[:n_hold], perm[n_hold:]
+    if len(tr) == 0 or len(hold) == 0:
+        raise RuntimeError(
+            f"empty train or holdout after split: train={len(tr)} holdout={len(hold)} "
+            f"(n={n_total}, holdout_frac={args.holdout_frac})"
+        )
     reg = fit_xgb_regressor(
         X[tr],
         y[tr],
