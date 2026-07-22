@@ -31,7 +31,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 from src.data.sae_cache import pack_sparse
-from conf.paths import ESMC_MODEL, ESMC_SAE, PPI_DATA, RESULTS_MISC
+from conf.paths import ESMC_MODEL, ESMC_SAE, PPI_DATA, RESULTS_MAIN
 from conf.model import (
     ESMC_SAE_DEFAULT_LAYER, ESMC_SAE_AVAILABLE_LAYERS,
     ESMC_DIM, ESMC_SAE_DIM, ESMC_SAE_K,
@@ -494,10 +494,10 @@ def main():
             f"--layer {args.layer} not in ESMC_SAE_AVAILABLE_LAYERS={ESMC_SAE_AVAILABLE_LAYERS}"
         )
     if args.out_dir is None:
-        base = RESULTS_MISC / "sae_pdb_ddi_cache"
+        base = RESULTS_MAIN / "sae_pdb_ddi_cache"
         args.out_dir = (
             base if args.layer == ESMC_SAE_DEFAULT_LAYER
-            else RESULTS_MISC / f"sae_pdb_ddi_cache_l{args.layer}"
+            else RESULTS_MAIN / f"sae_pdb_ddi_cache_l{args.layer}"
         )
     seqs, summary = build_manifests(args)
     print(

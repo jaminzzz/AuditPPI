@@ -19,10 +19,15 @@ def __getattr__(name: str):
         from src.ppi_fingerprint.baseline import run_baseline
 
         return run_baseline
+    if name == "run_baseline_evals":
+        from src.ppi_fingerprint.baseline import run_baseline_evals
+
+        return run_baseline_evals
     raise AttributeError(name)
 
 __all__ = [
     "run_baseline",
+    "run_baseline_evals",
     "CACHE",
     "MODEL_NAMES",
     "NATIVE_TRAIN",

@@ -26,7 +26,7 @@ from conf.model import (
     DEFAULT_SEED,
     resolve_backbone_layer,
 )
-from conf.paths import PPI_PREDICTION_CACHES as CACHE, RESULTS_MISC
+from conf.paths import PPI_PREDICTION_CACHES as CACHE, RESULTS_MAIN
 from src.data import pairs as benchmark_data
 from src.eval import evaluate_scorer
 from src.eval.metrics import participation_t, safe_spearman
@@ -37,7 +37,7 @@ from src.models.estimators.xgboost import fit_xgb_regressor
 
 # Default write dir preserved byte-identically from the pre-refactor predictor
 # (was ``ppi_fingerprint.config.OUT_DIR``); the registered runs rely on it.
-OUT_DIR = RESULTS_MISC / "ppi_fingerprint"
+OUT_DIR = RESULTS_MAIN / "ppi_fingerprint"
 
 TRAINVAL = {
     "c3": ("c3:train", "c3:val"),

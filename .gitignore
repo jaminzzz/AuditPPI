@@ -12,7 +12,7 @@
 #     caches, superseded cache builders); never version-controlled ---
 /backups/
 
-# --- Audit products (regenerable; layered under results/{audit_*,analysis,misc}/) ---
+# --- Audit products (regenerable; layered under results/{audit_*,analysis,main}/) ---
 /results/
 
 # --- Runtime logs / ad-hoc shell chains (not experiment provenance) ---

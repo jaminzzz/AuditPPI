@@ -15,7 +15,7 @@ trained model and no sequence features; only pairs + labels.
 import argparse
 from pathlib import Path
 
-from conf.paths import RESULTS_MISC
+from conf.paths import RESULTS_MAIN
 from src.eval.participation import benchmark_diagnostic
 from src.data.pairs import list_cross_species, load_benchmark
 from src.experiments.results import dump_experiment
@@ -57,7 +57,7 @@ def main() -> None:
     p.add_argument("--benchmark", default="rf2ppi",
                    help="rf2ppi | c3[:split] | cross_species:species")
     p.add_argument("--all", action="store_true", help="run rf2ppi + c3:test + all cross-species")
-    p.add_argument("--out-dir", type=Path, default=RESULTS_MISC / "eval")
+    p.add_argument("--out-dir", type=Path, default=RESULTS_MAIN / "eval")
     args = p.parse_args()
 
     names = (["rf2ppi", "c3:test"] + [f"cross_species:{s}" for s in list_cross_species()]

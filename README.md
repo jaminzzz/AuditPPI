@@ -38,7 +38,7 @@ AuditPPI/
 │   ├── audit_pair/        Ladder 2 -- endpoint-additive, TabPFN, neg-sampling.
 │   ├── audit_residue/     Ladder 3 -- interface grounding.
 │   ├── analysis/          Cross-ladder analyses (e.g. C3↔PRING feature overlap).
-│   └── misc/              Baseline fingerprint, cross-ladder figure data, spare caches.
+│   └── main/              Primary PPI outputs (fingerprint baselines, figure data).
 ├── external/              Symlinks to shared read-only data lakes (see below).
 ├── src/
 │   ├── data/              Benchmark loaders, PRING graph labels, sequence I/O, and sparse SAE cache codec.
@@ -156,8 +156,11 @@ effects).
 high-participation classifiers on PRING / C3 / PIC.
 
 **`audit_pair/`** (Ladder 2) — C3 endpoint-additive models (EBM / MLP),
-PPI fingerprinting, and prediction on C1/C2/C3 and cross-species benchmarks, PRING and Bernett (xgboost),
 TabPFN retrieval-attention audit, negative-sampling & localization confound analyses.
+
+**`main/`** — primary PPI prediction outputs: the pooled fingerprint baseline
+(`ppi_fingerprint/`, XGB / TabPFN / MLP-pair / TabM-pair) on C1/C2/C3,
+cross-species, PRING, and Bernett, plus related figure intermediates.
 
 **`audit_residue/`** (Ladder 3) — interface SAE enrichment (with surface-matched control)
 and contact-pair compatibility on PDB_PPI structures.

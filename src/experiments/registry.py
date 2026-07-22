@@ -61,7 +61,7 @@ from conf.paths import (
     PRING_CROSS_SPECIES as PRING_SPECIES,
     PRING_HUMAN_SAE_CACHE,
     PRING_SPECIES_SAE_CACHES,
-    RESULTS_MISC,
+    RESULTS_MAIN,
     RESULTS_PAIR,
     RESULTS_PROTEIN,
     RESULTS_RESIDUE,
@@ -424,8 +424,8 @@ def _pair_experiments() -> list[Experiment]:
         "bernett": (BERNETT_SAE_CACHE,),
         "pring": tuple(PRING_SPECIES_SAE_CACHES.values()),
     }
-    # (backbone, layer) axes -- the product tag matches the script's
-    # ``summary_{family}_{model}_{backbone}L{layer}.json`` naming.
+    # (backbone, layer) axes -- product path:
+    # results/main/ppi_fingerprint/{family}/xgb/summaries/{backbone}L{layer}.json
     fingerprint_axes = (("esmc", 60), ("esmc", 80), ("esm2", 33))
     for family, cache_inputs in fingerprint_family_inputs.items():
         for backbone, layer in fingerprint_axes:
@@ -441,7 +441,8 @@ def _pair_experiments() -> list[Experiment]:
                     ),
                     inputs=cache_inputs,
                     products=(
-                        RESULTS_MISC / "ppi_fingerprint" / f"summary_{family}_xgb_{b_tag}.json",
+                        RESULTS_MAIN / "ppi_fingerprint" / family / "xgb"
+                        / "summaries" / f"{b_tag}.json",
                     ),
                 )
             )
@@ -512,7 +513,7 @@ def _analysis_experiments() -> list[Experiment]:
             script="scripts/analysis/diagnose_benchmark_participation.py",
             args=("--all",),
             inputs=(),
-            products=(RESULTS_MISC / "eval",),
+            products=(RESULTS_MAIN / "eval",),
         ),
     ]
 

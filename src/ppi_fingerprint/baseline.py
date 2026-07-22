@@ -1,19 +1,23 @@
 """Orchestration for the pooled-SAE fingerprint + classifier baseline.
 
 Trains a classifier (XGB / TabPFN / MLP-pair / TabM-pair) on a representation
-(binary / sae_max / esmc_mean) of the **native train set** for each eval
-benchmark, then scores the eval benchmark and reports AUROC/AUPRC via
-:func:`src.eval.evaluate_scorer`. This is the pooled-fingerprint "participation
-channel" baseline the gated AuditPPI model is judged against.
+(binary / sae_max / esmc_mean) of the **native train set**, then scores one or
+more eval benchmarks and reports AUROC/AUPRC via :func:`src.eval.evaluate_scorer`.
+This is the pooled-fingerprint "participation channel" baseline the gated
+AuditPPI model is judged against.
 
 Training protocol (user decision — per-benchmark native train):
   c1:*           ← train on c1:train
   c2:*           ← train on c2:train
   c3:*           ← train on c3:train
-  cross_species:*← train on cross_species:human_train
+  cross_species:*← train on cross_species:human_train  (**once** per rep/axis)
   bernett:*      ← train on bernett:train
   pring:*        ← train on pring:human:train:<method> (zero-shot cross-species)
   rf2ppi         ← train on c3:train (RF2-PPI has no train split), zero-shot eval
+
+When several evals share the same native train (e.g. all ``cross_species:*``, or
+PRING's BFS human test + yeast/ecoli/arath), :func:`run_baseline_evals` fits
+**once** and only re-runs feature assembly + inference per eval.
 
 Feature source (v1): each family's ``auditppi_protein_features_v1`` protein cache
 (``conf.paths.PPI_PREDICTION_CACHES``) holds every endpoint sequence for that
@@ -25,13 +29,17 @@ so its cache is resolved by species via ``PRING_SPECIES_SAE_CACHES``.
 ``mlp_pair`` and ``tabm_pair`` share the :data:`~src.features.pairs.PAIR_MODES`
 vocabulary (``sym`` / ``concat`` / ``rich`` / ablations); only ``concat`` uses
 AB/BA train/eval.
+
+Results land under
+``OUT_DIR/{family}/{model}/cells|summaries/`` (see :mod:`src.ppi_fingerprint.config`).
 """
 
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -52,15 +60,18 @@ from src.ppi_fingerprint.config import (
     MODEL_NAMES,
     NATIVE_TRAIN,
     OUT_DIR,
+    PAIR_MODELS,
     PRING_DEFAULT_METHOD,
     PRING_SPECIES_SAE_CACHES,
+    cell_path,
+    family_of,
 )
 
 _loaded: Dict[Path, Dict] = {}  # cache of loaded v1 caches, keyed by resolved path
 
 
 def _family(name: str) -> str:
-    return name.split(":")[0]
+    return family_of(name)
 
 
 def _cache_path_for(name: str) -> Path:
@@ -132,21 +143,18 @@ def _assemble(name: str, rep: str, *, backbone: str, layer: Optional[int]):
     return bench, A, B, y, kept
 
 
-def run_baseline(model: str, rep: str, eval_name: str, *, top_k: int = 500,
-                 backbone: str = DEFAULT_BACKBONE, layer: Optional[int] = None,
-                 pair_mode: str = "sym",
-                 train_subsample: Optional[int] = 100000, val_frac: float = 0.1, seed: int = DEFAULT_SEED,
-                 out_dir: Path = OUT_DIR, write: bool = True) -> Dict:
-    if model not in MODEL_NAMES:
-        raise ValueError(f"unknown model {model!r}; choose from {MODEL_NAMES}")
-    if rep not in REPRESENTATIONS:
-        raise ValueError(f"unknown representation {rep!r}; choose from {REPRESENTATIONS}")
-    if pair_mode not in PAIR_MODES:
-        raise ValueError(f"unknown pair_mode {pair_mode!r}; choose from {PAIR_MODES}")
-    train_name = _train_name_for(eval_name)
-    val_name = _val_name_for(eval_name)
-
-    # ---- train (native) ----
+def _prepare_train_val(
+    train_name: str,
+    val_name: Optional[str],
+    rep: str,
+    *,
+    backbone: str,
+    layer: Optional[int],
+    train_subsample: Optional[int],
+    val_frac: float,
+    seed: int,
+):
+    """Load/subsample train (+ official or carved val). Returns tensors + n_train."""
     import torch
 
     _, Atr, Btr, ytr, _ = _assemble(train_name, rep, backbone=backbone, layer=layer)
@@ -156,18 +164,14 @@ def run_baseline(model: str, rep: str, eval_name: str, *, top_k: int = 500,
         Atr, Btr, ytr = Atr.index_select(0, ti), Btr.index_select(0, ti), ytr[sub]
 
     if val_name is not None:
-        # Official held-out val split for early stopping -- all of train is used
-        # for fitting; the val benchmark is loaded and featurised separately.
+        # Official held-out val -- all of (subsampled) train is used for fitting.
         _, Ava_, Bva_, yva_, _ = _assemble(val_name, rep, backbone=backbone, layer=layer)
         Atr_, Btr_, ytr_ = Atr, Btr, ytr
     else:
         # No official val (cross_species): carve a stratified val from train.
-        # stratified_subsample returns None when max_rows >= len(y); never index
-        # with None (numpy treats None as newaxis and silently corrupts the split).
         n_val = max(1, int(len(ytr) * val_frac))
         val_idx = stratified_subsample(ytr, n_val, seed + 1)
         if val_idx is None:
-            # Degenerate tiny train set: hold out a single stratified-or-first row.
             if len(ytr) <= 1:
                 raise ValueError(
                     f"need at least 2 training pairs for a val split; got {len(ytr)}"
@@ -180,58 +184,208 @@ def run_baseline(model: str, rep: str, eval_name: str, *, top_k: int = 500,
         Atr_, Btr_, ytr_ = Atr.index_select(0, mt), Btr.index_select(0, mt), ytr[mask]
         Ava_, Bva_, yva_ = Atr.index_select(0, mv), Btr.index_select(0, mv), ytr[val_idx]
 
-    # ---- eval (target benchmark) ----
-    ebench, Ae, Be, ye, kept = _assemble(eval_name, rep, backbone=backbone, layer=layer)
-    n_skipped = len(ebench.pairs) - len(kept)
+    return Atr_, Btr_, ytr_, Ava_, Bva_, yva_, int(len(ytr_))
 
-    # ---- fit + predict ----
-    # xgb/tabpfn stay on the historical ``sym`` tabular features (order-invariant
-    # trees/TabPFN do not need AB/BA). mlp_pair and tabm_pair share ``pair_mode``
-    # so the only free axis between them is classifier capacity.
+
+def _fit_scorer(
+    model: str,
+    Atr_,
+    Btr_,
+    ytr_,
+    Ava_,
+    Bva_,
+    yva_,
+    *,
+    pair_mode: str,
+    top_k: int,
+    seed: int,
+) -> Tuple[Callable, Optional[np.ndarray]]:
+    """Fit once; return ``predict(Ae, Be) -> scores`` and optional TabPFN cols."""
     cols = None
     if model == "xgb":
         Xtr, Xva = sym_features(Atr_, Btr_), sym_features(Ava_, Bva_)
         clf = fit_xgb(Xtr, ytr_, Xva, yva_, seed=seed)
-        scores = predict_proba_chunked(clf, sym_features(Ae, Be))
-    elif model == "tabpfn":
+
+        def predict(Ae, Be, _clf=clf):
+            return predict_proba_chunked(_clf, sym_features(Ae, Be))
+
+        return predict, cols
+
+    if model == "tabpfn":
         Xtr_full = sym_features(Atr_, Btr_)
         cols = xgb_topk_columns(Xtr_full, ytr_, top_k, seed=seed)
         clf = fit_tabpfn(Xtr_full[:, cols], ytr_, seed=seed)
-        scores = predict_proba_chunked(clf, sym_features(Ae, Be, cols))
-    elif model == "mlp_pair":
+
+        def predict(Ae, Be, _clf=clf, _cols=cols):
+            return predict_proba_chunked(_clf, sym_features(Ae, Be, _cols))
+
+        return predict, cols
+
+    if model == "mlp_pair":
         mlp = train_mlp_pair(
             Atr_, Btr_, ytr_, Ava_, Bva_, yva_,
             pair_mode=pair_mode, seed=seed,
         )
-        scores = mlp.predict_proba_pairs(Ae, Be)
-    else:  # tabm_pair -- same pair_mode vocabulary as mlp_pair
-        tabm = train_tabm_pair(
-            Atr_, Btr_, ytr_, Ava_, Bva_, yva_,
-            pair_mode=pair_mode, seed=seed,
-        )
-        scores = tabm.predict_proba_pairs(Ae, Be)
 
-    # ---- score the eval benchmark (AUROC / AUPRC) ----
+        def predict(Ae, Be, _mlp=mlp):
+            return _mlp.predict_proba_pairs(Ae, Be)
+
+        return predict, cols
+
+    # tabm_pair -- same pair_mode vocabulary as mlp_pair
+    tabm = train_tabm_pair(
+        Atr_, Btr_, ytr_, Ava_, Bva_, yva_,
+        pair_mode=pair_mode, seed=seed,
+    )
+
+    def predict(Ae, Be, _tabm=tabm):
+        return _tabm.predict_proba_pairs(Ae, Be)
+
+    return predict, cols
+
+
+def _score_eval(
+    predict: Callable,
+    eval_name: str,
+    rep: str,
+    *,
+    model: str,
+    backbone: str,
+    layer: Optional[int],
+    train_name: str,
+    pair_mode: str,
+    top_k: int,
+    n_train: int,
+    cols: Optional[np.ndarray],
+    write: bool,
+    out_dir: Path,
+) -> Dict[str, Any]:
+    ebench, Ae, Be, ye, kept = _assemble(eval_name, rep, backbone=backbone, layer=layer)
+    n_skipped = len(ebench.pairs) - len(kept)
+    scores = predict(Ae, Be)
+
     resolved_layer = resolve_backbone_layer(backbone, layer)
     score_map = {ebench.pairs[i]: float(s) for i, s in zip(kept, scores)}
     res = evaluate_scorer(lambda a, b: score_map.get((a, b)), ebench, name=f"{model}_{rep}")
-    pair_models = {"mlp_pair", "tabm_pair"}
-    res.update({"model": model, "rep": rep, "eval": eval_name, "train": train_name,
-                "backbone": backbone, "layer": resolved_layer,
-                "pair_mode": pair_mode if model in pair_models else "sym",
-                "top_k": top_k if model == "tabpfn" else None,
-                "n_train": int(len(ytr_)), "n_skipped_eval": int(n_skipped)})
-    pm_tag = f"·{pair_mode}" if model in pair_models else ""
-    print(f"[{model}·{rep}·{backbone}L{resolved_layer}{pm_tag}·{eval_name}] "
-          f"AUROC={res['auroc']} AUPRC={res['auprc']} "
-          f"(n_train={res['n_train']}, skip={n_skipped})", flush=True)
+    res.update({
+        "model": model,
+        "rep": rep,
+        "eval": eval_name,
+        "train": train_name,
+        "backbone": backbone,
+        "layer": resolved_layer,
+        "pair_mode": pair_mode if model in PAIR_MODELS else "sym",
+        "top_k": top_k if model == "tabpfn" else None,
+        "n_train": int(n_train),
+        "n_skipped_eval": int(n_skipped),
+    })
+    pm_tag = f"·{pair_mode}" if model in PAIR_MODELS else ""
+    print(
+        f"[{model}·{rep}·{backbone}L{resolved_layer}{pm_tag}·{eval_name}] "
+        f"AUROC={res['auroc']} AUPRC={res['auprc']} "
+        f"(n_train={res['n_train']}, skip={n_skipped})",
+        flush=True,
+    )
 
     if write:
-        out_dir.mkdir(parents=True, exist_ok=True)
+        family = _family(eval_name)
         b_tag = f"{backbone}L{resolved_layer}"
-        if model in pair_models:
-            stem = f"{model}_{rep}_{b_tag}_{pair_mode}_{eval_name.replace(':', '_')}"
-        else:
-            stem = f"{model}_{rep}_{b_tag}_{eval_name.replace(':', '_')}"
-        (out_dir / f"{stem}.json").write_text(json.dumps(res, indent=2))
+        path = cell_path(
+            family, model, rep, b_tag, eval_name,
+            pair_mode=pair_mode if model in PAIR_MODELS else "sym",
+            root=out_dir,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(res, indent=2))
     return res
+
+
+def run_baseline_evals(
+    model: str,
+    rep: str,
+    eval_names: Sequence[str],
+    *,
+    top_k: int = 500,
+    backbone: str = DEFAULT_BACKBONE,
+    layer: Optional[int] = None,
+    pair_mode: str = "sym",
+    train_subsample: Optional[int] = 100000,
+    val_frac: float = 0.1,
+    seed: int = DEFAULT_SEED,
+    out_dir: Path = OUT_DIR,
+    write: bool = True,
+) -> List[Dict[str, Any]]:
+    """Fit once per shared native-train key, then score every eval.
+
+    Evals are grouped by :func:`_train_name_for`. Within a group the classifier
+    is fit a single time (same train/val protocol) and only feature assembly +
+    inference re-run per eval -- so ``cross_species`` and PRING zero-shot
+    species no longer retrain N times on the same human graph.
+    """
+    if model not in MODEL_NAMES:
+        raise ValueError(f"unknown model {model!r}; choose from {MODEL_NAMES}")
+    if rep not in REPRESENTATIONS:
+        raise ValueError(f"unknown representation {rep!r}; choose from {REPRESENTATIONS}")
+    if pair_mode not in PAIR_MODES:
+        raise ValueError(f"unknown pair_mode {pair_mode!r}; choose from {PAIR_MODES}")
+    if not eval_names:
+        raise ValueError("eval_names must be non-empty")
+
+    groups: Dict[str, List[str]] = defaultdict(list)
+    for ev in eval_names:
+        groups[_train_name_for(ev)].append(ev)
+
+    results: List[Dict[str, Any]] = []
+    for train_name, group_evals in groups.items():
+        # Val protocol is a function of family/method, identical for a shared train.
+        val_name = _val_name_for(group_evals[0])
+        Atr_, Btr_, ytr_, Ava_, Bva_, yva_, n_train = _prepare_train_val(
+            train_name, val_name, rep,
+            backbone=backbone, layer=layer,
+            train_subsample=train_subsample, val_frac=val_frac, seed=seed,
+        )
+        if len(group_evals) > 1:
+            print(
+                f"[fit] {model}/{rep} train={train_name} "
+                f"→ {len(group_evals)} evals (train-once)",
+                flush=True,
+            )
+        predict, cols = _fit_scorer(
+            model, Atr_, Btr_, ytr_, Ava_, Bva_, yva_,
+            pair_mode=pair_mode, top_k=top_k, seed=seed,
+        )
+        for ev in group_evals:
+            results.append(
+                _score_eval(
+                    predict, ev, rep,
+                    model=model, backbone=backbone, layer=layer,
+                    train_name=train_name, pair_mode=pair_mode,
+                    top_k=top_k, n_train=n_train, cols=cols,
+                    write=write, out_dir=out_dir,
+                )
+            )
+    return results
+
+
+def run_baseline(
+    model: str,
+    rep: str,
+    eval_name: str,
+    *,
+    top_k: int = 500,
+    backbone: str = DEFAULT_BACKBONE,
+    layer: Optional[int] = None,
+    pair_mode: str = "sym",
+    train_subsample: Optional[int] = 100000,
+    val_frac: float = 0.1,
+    seed: int = DEFAULT_SEED,
+    out_dir: Path = OUT_DIR,
+    write: bool = True,
+) -> Dict[str, Any]:
+    """Single-eval convenience wrapper around :func:`run_baseline_evals`."""
+    return run_baseline_evals(
+        model, rep, [eval_name],
+        top_k=top_k, backbone=backbone, layer=layer, pair_mode=pair_mode,
+        train_subsample=train_subsample, val_frac=val_frac, seed=seed,
+        out_dir=out_dir, write=write,
+    )[0]

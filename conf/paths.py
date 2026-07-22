@@ -11,7 +11,7 @@ Sections
 --------
     Roots                 project anchors (ROOT/DATA/CONF/EXTERNAL/BASELINES/RESULTS)
     Results               audit PRODUCTS, layered by scale (protein/pair/residue/
-                          analysis/misc). Was data/audit + data/tabpfn.
+                          analysis/main). Was data/audit + data/tabpfn.
     SAE artifacts         cache pipeline (seq/protein/pair/residue), feature
                           table, supp inputs
     TabPFN artifacts      topk / retrieval products under results/audit_pair/tabpfn
@@ -40,7 +40,7 @@ Layout
     │   ├── audit_pair/        <- Ladder 2 endpoint-additive / TabPFN / neg-sampling
     │   ├── audit_residue/     <- Ladder 3 interface grounding
     │   ├── analysis/          <- cross-ladder analyses
-    │   └── misc/              <- baseline fingerprint, figure intermediates
+    │   └── main/              <- primary PPI outputs (fingerprint baselines, …)
     ├── baselines/             <- in-project baseline repos (PIC/PRING/mint/...)
     ├── external/              <- external repositories, model assets, and data links
     └── manuscripts/figures/
@@ -82,7 +82,7 @@ BASELINES = ROOT / "baselines"
 #   audit_pair/     Ladder 2 -- endpoint-additive models, TabPFN, neg-sampling
 #   audit_residue/  Ladder 3 -- interface grounding
 #   analysis/       cross-ladder analyses (e.g. C3<->PRING feature overlap)
-#   misc/           baseline fingerprint, cross-ladder figure data, spare caches
+#   main/           primary PPI outputs (fingerprint baselines)
 # Source FASTA that used to sit under data/audit/rf2ppi_benchmark/ moved to
 # data/raw/ (it is a dataset input, not a result) -- see RF2PPI_* below.
 RESULTS = ROOT / "results"
@@ -90,7 +90,9 @@ RESULTS_PROTEIN = RESULTS / "audit_protein"
 RESULTS_PAIR = RESULTS / "audit_pair"
 RESULTS_RESIDUE = RESULTS / "audit_residue"
 RESULTS_ANALYSIS = RESULTS / "analysis"
-RESULTS_MISC = RESULTS / "misc"
+RESULTS_MAIN = RESULTS / "main"
+# Back-compat alias -- prefer RESULTS_MAIN in new code.
+RESULTS_MISC = RESULTS_MAIN
 
 
 # === SAE artifacts (moved from SAE_PPI) ====================================
