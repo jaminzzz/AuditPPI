@@ -36,7 +36,7 @@ from src.eval.metrics import pair_score_metrics as metrics
 from src.experiments.results import dump_experiment
 from src.features.pairs import load_protein_feature_cache
 from src.features.protein_cache import representation_matrix
-from src.models.architectures.endpoint_mlp import EndpointMLP
+from src.models.architectures.mlp_endpoint import MLPEndpoint
 from src.runtime import seed_all
 
 HUMAN_CACHE = PRING_HUMAN_SAE_CACHE
@@ -115,7 +115,7 @@ def batch_vectors(mat: torch.Tensor, rows: torch.Tensor, device: torch.device) -
 
 @torch.no_grad()
 def predict(
-    model: EndpointMLP,
+    model: MLPEndpoint,
     mat: torch.Tensor,
     split: dict,
     device: torch.device,
@@ -162,7 +162,7 @@ def train_one(args: argparse.Namespace, method: str, mat: torch.Tensor, id_to_id
 
     dim = int(mat.shape[1])
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
-    model = EndpointMLP(
+    model = MLPEndpoint(
         dim=dim,
         hidden=args.hidden,
         layers=args.layers,

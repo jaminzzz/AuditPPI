@@ -409,9 +409,13 @@ def _pair_experiments() -> list[Experiment]:
 
     # PPI-fingerprint pair-scale predictor (in-house participation-channel
     # baseline): train XGB on each family's native-train endpoints, score its
-    # eval split. One cell per (family, model); the runner sweeps every rep and
-    # writes a per-cell summary. Each family reads its own v1 protein cache
-    # (PPI_PREDICTION_CACHES); PRING additionally needs its per-species caches.
+    # eval split. Backbone/layer is a formal matrix axis: each (family, axis)
+    # is one cell (6 families x 3 axes = 18), so all three backbone/layer
+    # results enter runs.jsonl + provenance history. The runner sweeps every
+    # rep within a cell and writes a per-cell summary. Each family reads its own
+    # v1 protein cache (PPI_PREDICTION_CACHES); PRING additionally needs its
+    # per-species caches. All three axis channels co-exist in one cache payload
+    # (ESM-C L60/L80 + ESM-2 L33), so a family's inputs are axis-independent.
     fingerprint_family_inputs = {
         "c1": (C1_SAE_CACHE,),
         "c2": (C2_SAE_CACHE,),
@@ -420,17 +424,27 @@ def _pair_experiments() -> list[Experiment]:
         "bernett": (BERNETT_SAE_CACHE,),
         "pring": tuple(PRING_SPECIES_SAE_CACHES.values()),
     }
+    # (backbone, layer) axes -- the product tag matches the script's
+    # ``summary_{family}_{model}_{backbone}L{layer}.json`` naming.
+    fingerprint_axes = (("esmc", 60), ("esmc", 80), ("esm2", 33))
     for family, cache_inputs in fingerprint_family_inputs.items():
-        exps.append(
-            Experiment(
-                name=f"pair.ppi_fingerprint.{family}",
-                layer="pair",
-                script="scripts/audit_pair/run_ppi_fingerprint_baseline.py",
-                args=("--model", "xgb", "--family", family),
-                inputs=cache_inputs,
-                products=(RESULTS_MISC / "ppi_fingerprint" / f"summary_{family}_xgb_esmcL60.json",),
+        for backbone, layer in fingerprint_axes:
+            b_tag = f"{backbone}L{layer}"
+            exps.append(
+                Experiment(
+                    name=f"pair.ppi_fingerprint.{family}.{b_tag}",
+                    layer="pair",
+                    script="scripts/audit_pair/run_ppi_fingerprint_baseline.py",
+                    args=(
+                        "--model", "xgb", "--family", family,
+                        "--backbone", backbone, "--layer", str(layer),
+                    ),
+                    inputs=cache_inputs,
+                    products=(
+                        RESULTS_MISC / "ppi_fingerprint" / f"summary_{family}_xgb_{b_tag}.json",
+                    ),
+                )
             )
-        )
 
     return exps
 

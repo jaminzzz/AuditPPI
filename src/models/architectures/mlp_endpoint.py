@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 
 
-class EndpointMLP(torch.nn.Module):
+class MLPEndpoint(torch.nn.Module):
     """Compute ``logit(A,B) = alpha(A) + alpha(B)`` with a shared MLP."""
 
     def __init__(
@@ -38,4 +38,4 @@ class EndpointMLP(torch.nn.Module):
         return self.alpha(a) + self.alpha(b)
 
 
-__all__ = ["EndpointMLP"]
+__all__ = ["MLPEndpoint"]

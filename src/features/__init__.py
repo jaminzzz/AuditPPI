@@ -25,7 +25,14 @@ Pair-probe ranking / sym top-k / fit wrappers live in
 from src.data.sequences import normalize_sequence
 
 from .manifest import ProteinManifest, load_protein_manifest
-from .pairs import PAIR_MODES, pair_features
+from .pairs import (
+    ORDER_SENSITIVE_MODES,
+    PAIR_MODE_MULTIPLIER,
+    PAIR_MODES,
+    needs_abba,
+    pair_features,
+    pair_mode_dim,
+)
 from .protein_cache import (
     REPRESENTATIONS,
     pair_feature_rows,
@@ -35,13 +42,17 @@ from .protein_cache import (
 )
 
 __all__ = [
+    "ORDER_SENSITIVE_MODES",
+    "PAIR_MODE_MULTIPLIER",
     "PAIR_MODES",
     "ProteinManifest",
     "REPRESENTATIONS",
     "load_protein_manifest",
+    "needs_abba",
     "normalize_sequence",
     "pair_features",
     "pair_feature_rows",
+    "pair_mode_dim",
     "protein_feature_rows",
     "rep_dim",
     "representation_matrix",

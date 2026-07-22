@@ -69,8 +69,11 @@ from src.features.sequence_composition import (
     normalize_feature_kind,
 )
 from src.models.calibration import fit_degree_calibration
-from src.models.estimators.regressors import MODEL_KINDS, fit_participation_model
+from src.models.estimators import PARTICIPATION_MODEL_KINDS
+from src.models.estimators.tabpfn import fit_tabpfn_regressor
+from src.models.estimators.xgboost import fit_xgb_logdegree
 
+MODEL_KINDS = PARTICIPATION_MODEL_KINDS
 
 def load_full_species_nodes(
     labels: ParticipationLabels,
@@ -198,21 +201,28 @@ def run_pring_cross_species_generalization(
     def select(matrix: np.ndarray) -> np.ndarray:
         return matrix if selected_columns is None else matrix[:, selected_columns]
 
-    regressor = fit_participation_model(
-        model_kind,
-        select(train_x),
-        train_y,
-        select(val_x),
-        val_y,
-        seed=seed,
-        n_estimators=n_estimators,
-        max_depth=max_depth,
-        learning_rate=lr,
-        device=device,
-        early_stopping_rounds=early_stopping_rounds,
-        tabpfn_estimators=tabpfn_estimators,
-        tabpfn_subsample_samples=tabpfn_subsample_samples,
-    )
+    if model_kind == "xgboost":
+        regressor = fit_xgb_logdegree(
+            select(train_x),
+            train_y,
+            select(val_x),
+            val_y,
+            seed=seed,
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            learning_rate=lr,
+            device=device,
+            early_stopping_rounds=early_stopping_rounds,
+        )
+    else:  # tabpfn
+        regressor = fit_tabpfn_regressor(
+            select(train_x),
+            train_y,
+            seed=seed,
+            n_estimators=tabpfn_estimators,
+            device=device,
+            subsample_samples=tabpfn_subsample_samples,
+        )
     predicted_val = np.asarray(regressor.predict(select(val_x)), dtype=float)
     calibration_params, calibrate = fit_degree_calibration(
         calibration,

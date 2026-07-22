@@ -1,7 +1,7 @@
 """PPI fingerprint feature assembly and baseline experiment protocol.
 
 The package combines pooled per-protein representations into pair features,
-then orchestrates XGBoost, TabPFN, or dual-tower evaluation. Shared data,
+then orchestrates XGBoost, TabPFN, MLP-pair, or TabM-pair evaluation. Shared data,
 models, and general analyses live in their corresponding top-level packages.
 """
 

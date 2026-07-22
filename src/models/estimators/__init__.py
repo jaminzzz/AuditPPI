@@ -5,7 +5,6 @@ from .ebm import (
     endpoint_pair_predictions,
     make_endpoint_ebm,
 )
-from .regressors import MODEL_KINDS, fit_participation_model
 from .tabpfn import fit_tabpfn, fit_tabpfn_regressor, predict_proba_chunked
 from .xgboost import (
     fit_with_cpu_fallback,
@@ -15,11 +14,13 @@ from .xgboost import (
     fit_xgb_regressor,
 )
 
+# Participation (log-degree) regressors offered by the PRING workflows.
+PARTICIPATION_MODEL_KINDS = ("xgboost", "tabpfn")
+
 __all__ = [
-    "MODEL_KINDS",
+    "PARTICIPATION_MODEL_KINDS",
     "endpoint_alpha",
     "endpoint_pair_predictions",
-    "fit_participation_model",
     "fit_tabpfn",
     "fit_tabpfn_regressor",
     "fit_with_cpu_fallback",

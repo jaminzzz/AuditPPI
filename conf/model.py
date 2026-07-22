@@ -27,7 +27,7 @@ copy elsewhere.
 Scope
 -----
 Architecture invariants and project-wide defaults ONLY. Per-experiment tuning
-knobs (XGBoost lr / n_estimators, EBM bins, MLP epochs, dual-tower widths, ...)
+knobs (XGBoost lr / n_estimators, EBM bins, MLP epochs, pair-MLP widths, ...)
 do NOT belong here — they live in their estimator dataclasses / CLI defaults so
 each experiment owns its own configuration. Audit *scientific definitions*
 (participation quantile, contact-distance cutoff, surface rSASA, FDR alpha) are

@@ -57,7 +57,7 @@ from src.interp.annotations import add_sae_annotations
 from src.interp.attribution import (
     endpoint_gradient_input_attribution,
 )
-from src.models.architectures.endpoint_mlp import EndpointMLP
+from src.models.architectures.mlp_endpoint import MLPEndpoint
 
 OUT_DIR = RESULTS_PAIR / "c3_endpoint_additive_mlp_sae"
 
@@ -138,7 +138,7 @@ def materialize_endpoints(mat: torch.Tensor, split: dict) -> tuple[torch.Tensor,
 
 @torch.no_grad()
 def predict(
-    model: EndpointMLP,
+    model: MLPEndpoint,
     mat: torch.Tensor,
     split: dict,
     device: torch.device,
@@ -162,7 +162,7 @@ def predict(
     return np.concatenate(probs), np.concatenate(alpha_a), np.concatenate(alpha_b)
 
 
-def train(args: argparse.Namespace) -> tuple[EndpointMLP, dict, dict]:
+def train(args: argparse.Namespace) -> tuple[MLPEndpoint, dict, dict]:
     seed_all(args.seed)
     resolved_layer = resolve_backbone_layer(args.backbone, args.layer)
     mat, seq_to_idx = load_cache(
@@ -174,7 +174,7 @@ def train(args: argparse.Namespace) -> tuple[EndpointMLP, dict, dict]:
 
     dim = int(mat.shape[1])
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
-    model = EndpointMLP(
+    model = MLPEndpoint(
         dim=dim,
         hidden=args.hidden,
         layers=args.layers,
@@ -194,7 +194,7 @@ def train(args: argparse.Namespace) -> tuple[EndpointMLP, dict, dict]:
     patience_left = args.patience
     n = int(train_split["y"].numel())
     print(
-        f"[data] model=no_bias_endpoint_mlp rep={args.rep} backbone={args.backbone} "
+        f"[data] model=no_bias_mlp_endpoint rep={args.rep} backbone={args.backbone} "
         f"layer={resolved_layer} train={n:,} val={val_split['y'].numel():,} "
         f"test={test_split['y'].numel():,} dim={dim:,} hidden={args.hidden} "
         f"layers={args.layers} device={device} skipped="
@@ -336,7 +336,7 @@ def write_pair_predictions(path: Path, split: dict, pred_pack: tuple[np.ndarray,
     df.to_csv(path, sep="\t", index=False)
 
 
-def write_attribution_tables(model: EndpointMLP, args: argparse.Namespace, aux: dict, stem: str) -> None:
+def write_attribution_tables(model: MLPEndpoint, args: argparse.Namespace, aux: dict, stem: str) -> None:
     device = torch.device(args.attr_device if args.attr_device else ("cuda" if torch.cuda.is_available() else "cpu"))
     split = aux["splits"][args.attr_split]
     endpoint_a, endpoint_b = materialize_endpoints(aux["mat"], split)

@@ -18,7 +18,7 @@ from conf.paths import (
     RESULTS_MISC,
 )
 
-MODEL_NAMES = ("xgb", "tabpfn", "dualtower")
+MODEL_NAMES = ("xgb", "tabpfn", "mlp_pair", "tabm_pair")
 
 # Benchmark family -> its own native train split. Each family trains on its own
 # train set and is scored on its eval split (user decision). RF2-PPI has no train

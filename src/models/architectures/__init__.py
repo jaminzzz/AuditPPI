@@ -1,13 +1,15 @@
 """Project-owned PyTorch architectures."""
 
-from .dual_tower import DualTowerNet, DualTowerPredictor, train_dual_tower
-from .endpoint_mlp import EndpointMLP
-from .tabm_pair import TabMPair
+from .mlp_endpoint import MLPEndpoint
+from .mlp_pair import MLPPair, MLPPairPredictor, train_mlp_pair
+from .tabm_pair import TabMPair, TabMPairPredictor, train_tabm_pair
 
 __all__ = [
-    "DualTowerNet",
-    "DualTowerPredictor",
-    "EndpointMLP",
+    "MLPEndpoint",
+    "MLPPair",
+    "MLPPairPredictor",
     "TabMPair",
-    "train_dual_tower",
+    "TabMPairPredictor",
+    "train_mlp_pair",
+    "train_tabm_pair",
 ]

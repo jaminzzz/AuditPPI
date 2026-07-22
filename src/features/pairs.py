@@ -12,15 +12,46 @@ import torch
 from conf.model import DEFAULT_BACKBONE
 from src.data.sequences import normalize_sequence
 
-PAIR_MODES = ("sym", "product", "absdiff", "concat")
+# Multiplier = output_dim / endpoint_dim. Shared by every pair consumer
+# (mlp_pair, tabm_pair, pair-feature caches, fingerprint baselines).
+PAIR_MODE_MULTIPLIER = {
+    "sym": 2,       # [A⊙B, |A−B|]
+    "concat": 2,    # [A‖B]  -- the only order-sensitive mode (AB/BA protocol)
+    "rich": 4,      # [A, B, A⊙B, |A−B|]  -- no AB/BA (single forward)
+    "product": 1,   # A⊙B
+    "absdiff": 1,   # |A−B|
+    "sum": 1,       # A+B
+}
+PAIR_MODES = tuple(PAIR_MODE_MULTIPLIER)
+# Only ``concat`` needs train-time AB/BA doubling + eval-time AB/BA averaging.
+# ``rich`` contains ordered [A,B] but is used as a single-shot feature (user decision).
+ORDER_SENSITIVE_MODES = frozenset({"concat"})
+
+
+def pair_mode_dim(feat_dim: int, mode: str) -> int:
+    """Output feature width for a pair mode given per-endpoint dim."""
+    if mode not in PAIR_MODE_MULTIPLIER:
+        raise ValueError(f"mode must be one of {PAIR_MODES}")
+    return int(feat_dim) * PAIR_MODE_MULTIPLIER[mode]
+
+
+def needs_abba(mode: str) -> bool:
+    """Whether ``mode`` requires the AB/BA train/eval protocol."""
+    if mode not in PAIR_MODE_MULTIPLIER:
+        raise ValueError(f"mode must be one of {PAIR_MODES}")
+    return mode in ORDER_SENSITIVE_MODES
 
 
 def pair_features(a: torch.Tensor, b: torch.Tensor, mode: str) -> torch.Tensor:
     """Construct one of the agreed pair representations.
 
-    ``sym`` is the primary order-invariant representation
-    ``[A * B, abs(A - B)]``. ``product`` and ``absdiff`` are its ablations.
-    ``concat`` is ordered and must use the train/eval AB/BA protocol below.
+    Primary modes:
+      ``sym``    = [A⊙B, |A−B|]           order-invariant (default tabular)
+      ``concat`` = [A‖B]                  order-sensitive → AB/BA protocol
+      ``rich``   = [A, B, A⊙B, |A−B|]     single-shot (no AB/BA)
+
+    Ablations (order-invariant, single-shot):
+      ``product`` / ``absdiff`` / ``sum``.
     """
     if mode not in PAIR_MODES:
         raise ValueError(f"mode must be one of {PAIR_MODES}")
@@ -37,9 +68,15 @@ def pair_features(a: torch.Tensor, b: torch.Tensor, mode: str) -> torch.Tensor:
         return a * b
     if mode == "absdiff":
         return (a - b).abs()
+    if mode == "sum":
+        return a + b
     if mode == "sym":
         return torch.cat([a * b, (a - b).abs()], dim=-1)
-    return torch.cat([a, b], dim=-1)
+    if mode == "concat":
+        return torch.cat([a, b], dim=-1)
+    if mode == "rich":
+        return torch.cat([a, b, a * b, (a - b).abs()], dim=-1)
+    raise ValueError(f"mode must be one of {PAIR_MODES}")
 
 
 def sym_features(A, B, cols: Optional[np.ndarray] = None) -> np.ndarray:
@@ -258,7 +295,7 @@ def build_pair_payload(
         "n_kept": len(kept_pair_indices),
     }
     if mode != "concat":
-        out_dim = dim * 2 if mode == "sym" else dim
+        out_dim = pair_mode_dim(dim, mode)
         x = torch.empty((n, out_dim), dtype=output_dtype)
         for start in range(0, n, chunk_size):
             end = min(start + chunk_size, n)
@@ -268,7 +305,7 @@ def build_pair_payload(
         payload["X"] = x
         return payload
     if concat_protocol == "train":
-        x = torch.empty((n * 2, dim * 2), dtype=output_dtype)
+        x = torch.empty((n * 2, pair_mode_dim(dim, "concat")), dtype=output_dtype)
         for start in range(0, n, chunk_size):
             end = min(start + chunk_size, n)
             a = matrix.index_select(0, rows_a[start:end]).to(output_dtype)

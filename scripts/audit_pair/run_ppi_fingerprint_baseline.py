@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 """Ladder-2 PPI prediction from pooled per-protein SAE fingerprints.
 
-Trains a classifier (XGB / TabPFN / dual-tower MLP) on a pooled representation
+Trains a classifier (XGB / TabPFN / MLP-pair / TabM-pair) on a pooled representation
 (``binary`` / ``sae_max`` / ``esmc_mean``) of each benchmark's **own** native
 train set, then scores its eval split and reports AUROC/AUPRC. This is the
 pooled-fingerprint "participation channel" pair-scale predictor -- endpoints
@@ -13,12 +12,16 @@ cache (``conf.paths.PPI_PREDICTION_CACHES`` / ``PRING_SPECIES_SAE_CACHES``) hold
 every endpoint sequence across that family's splits, with BOTH backbone lines
 (ESM-C L60/L80 + ESM-2 L33) and all channels in one payload. ``--backbone`` /
 ``--layer`` pick the channel within the cache; ``--rep`` picks the pooling view.
+``mlp_pair`` / ``tabm_pair`` additionally take ``--pair-mode`` (shared vocabulary:
+``sym`` / ``concat`` / ``rich`` / ``product`` / ``absdiff`` / ``sum``; only
+``concat`` uses AB/BA train/eval).
 
     PY=/data/wmzhu/anaconda3/envs/E1/bin/python
     $PY scripts/audit_pair/run_ppi_fingerprint_baseline.py --model xgb --family c3
-    $PY scripts/audit_pair/run_ppi_fingerprint_baseline.py --model xgb --family pring
-    $PY scripts/audit_pair/run_ppi_fingerprint_baseline.py --model xgb --family c3 \
-        --backbone esm2 --layer 33
+    $PY scripts/audit_pair/run_ppi_fingerprint_baseline.py --model mlp_pair --family c3 \
+        --pair-mode sym
+    $PY scripts/audit_pair/run_ppi_fingerprint_baseline.py --model tabm_pair --family c3 \
+        --pair-mode concat --backbone esm2 --layer 33
 
 A ``--family`` expands to that family's eval benchmark(s); each is trained on its
 own native train split (PRING trains on the human graph of the matching sampling
@@ -41,8 +44,10 @@ from conf.model import (
     resolve_backbone_layer,
 )
 from conf.paths import PRING_CROSS_SPECIES
+from src.data.pairs import list_cross_species
 from src.data.pring_graph import METHODS as PRING_METHODS
 from src.experiments.results import dump_experiment
+from src.features.pairs import PAIR_MODES
 from src.ppi_fingerprint.config import (
     MODEL_NAMES as MODELS,
     OUT_DIR,
@@ -61,7 +66,10 @@ def family_evals(family: str) -> list[str]:
     if family in {"c1", "c2", "c3"}:
         return [f"{family}:test"]
     if family == "cross_species":
-        return ["cross_species:human_test"]
+        # Trains on human; scores human self-test plus every held-out species
+        # (ecoli/fly/mouse/worm/yeast) zero-shot -- the dataset's whole point.
+        species = [s for s in list_cross_species() if s != "human_train"]
+        return [f"cross_species:{s}" for s in species]
     if family == "bernett":
         return ["bernett:test"]
     if family == "pring":
@@ -86,6 +94,9 @@ def main() -> None:
                    help="within-cache layer (default: backbone default)")
     p.add_argument("--reps", nargs="*", choices=REPS, default=list(REPS),
                    help="pooling views to sweep (default: all)")
+    p.add_argument("--pair-mode", choices=PAIR_MODES, default="sym",
+                   help="pair assemble for mlp_pair/tabm_pair (ignored by xgb/tabpfn; "
+                        "only concat uses AB/BA)")
     p.add_argument("--top-k", type=int, default=500, help="TabPFN feature cap")
     p.add_argument("--train-subsample", type=int, default=100000)
     p.add_argument("--device-id", type=int, default=None)
@@ -105,21 +116,23 @@ def main() -> None:
     evals = family_evals(args.family)
     b_tag = f"{args.backbone}L{layer}"
     print(f"[plan] family={args.family} model={args.model} backbone={b_tag} "
-          f"reps={args.reps} evals={evals}", flush=True)
+          f"reps={args.reps} pair_mode={args.pair_mode} evals={evals}", flush=True)
 
     summary: dict[str, dict] = {}
     for rep in args.reps:
         for ev in evals:
-            key = f"{args.model}/{rep}/{b_tag}/{ev}"
+            key = f"{args.model}/{rep}/{b_tag}/{args.pair_mode}/{ev}"
             try:
                 r = run_baseline(
                     args.model, rep, ev,
                     backbone=args.backbone, layer=layer,
+                    pair_mode=args.pair_mode,
                     top_k=args.top_k, train_subsample=args.train_subsample,
                     seed=args.seed,
                 )
                 summary[key] = {"auroc": r["auroc"], "auprc": r["auprc"],
-                                "n_skip": r["n_skipped_eval"], "train": r["train"]}
+                                "n_skip": r["n_skipped_eval"], "train": r["train"],
+                                "pair_mode": r.get("pair_mode")}
             except Exception as exc:  # noqa: BLE001  keep the sweep going
                 print(f"[skip] {key}: {exc}", flush=True)
                 summary[key] = {"error": str(exc)}
@@ -143,7 +156,7 @@ def main() -> None:
         hyperparameters={
             "backbone": args.backbone, "layer": layer,
             "top_k": args.top_k, "train_subsample": args.train_subsample,
-            "reps": list(args.reps),
+            "reps": list(args.reps), "pair_mode": args.pair_mode,
         },
     )
     print(f"\n[done] {out_path}", flush=True)
