@@ -27,7 +27,7 @@ the baseline "shares>=1" was diluting the control with generic-collision pairs.
 Read-only w.r.t. the baseline audit outputs; writes its own JSON.
 
 Run:
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/audit_pair/analyze_c3_localization_robustness.py --split test
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/analysis/analyze_c3_localization_robustness.py --split test
 """
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ import torch
 from src.experiments.results import dump_experiment
 
 # reuse the exact loaders / metrics / compartment map from the baseline audit
-from analyze_c3_localization_confound import (
+from AuditPPI.scripts.analysis.analyze_c3_localization_confound import (
     AUDIT_DIR,
     auroc_safe,
     build_protein_compartments,

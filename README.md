@@ -146,8 +146,7 @@ see its README for the different per-protein versus pair-conditioned cache
 contracts. Train/eval runners that score those features will land here later.
 
 **`analysis/`** — executable statistical analyses and explanation workflows over
-cached features, predictions, and benchmarks (e.g. cross-species TabPFN top-k
-probes, TabPFN retrieval attention / active-feature overlap, model-free
+cached features, predictions, and benchmarks (e.g. active-feature overlap, model-free
 participation diagnostics). Shared probe helpers live in
 `src/interp/` (`pair_probe`, `tabpfn_retrieval`, attribution, EBM
 effects).
@@ -156,7 +155,7 @@ effects).
 high-participation classifiers on PRING / C3 / PIC.
 
 **`audit_pair/`** (Ladder 2) — C3 endpoint-additive models (EBM / MLP),
-TabPFN retrieval-attention audit, negative-sampling & localization confound analyses.
+TabPFN retrieval-attention audit.
 
 **`main/`** — primary PPI prediction outputs: the pooled fingerprint baseline
 (`ppi_fingerprint/`, XGB / TabPFN / MLP-pair / TabM-pair) on C1/C2/C3,

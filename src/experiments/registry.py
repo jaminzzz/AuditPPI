@@ -44,10 +44,14 @@ from pathlib import Path
 
 from conf.paths import (
     BERNETT_SAE_CACHE,
+    C1_PAIR_INDEX_CACHES,
     C1_SAE_CACHE,
+    C2_PAIR_INDEX_CACHES,
     C2_SAE_CACHE,
     C3_PAIR_INDEX_CACHES,
     C3_SAE_CACHE,
+    CLEVEL_PAIR_INDEX_CACHES,
+    CLEVEL_SAE_CACHES,
     CROSS_SPECIES_PAIR_INDEX_CACHES,
     CROSS_SPECIES_SAE_CACHE,
     FEATURE_TABLE,
@@ -388,7 +392,7 @@ def _pair_experiments() -> list[Experiment]:
         Experiment(
             name="pair.c3_negative_sampling_bias",
             layer="pair",
-            script="scripts/audit_pair/analyze_c3_negative_sampling_bias.py",
+            script="scripts/analysis/analyze_c3_negative_sampling_bias.py",
             inputs=_pair_index_inputs(C3_PAIR_INDEX_CACHES, C3_SAE_CACHE),
             products=(RESULTS_PAIR / "negative_sampling_audit",),
         )
@@ -401,7 +405,7 @@ def _pair_experiments() -> list[Experiment]:
             Experiment(
                 name=f"pair.c3_localization_{kind}",
                 layer="pair",
-                script=f"scripts/audit_pair/analyze_c3_localization_{kind}.py",
+                script=f"scripts/analysis/analyze_c3_localization_{kind}.py",
                 inputs=_pair_index_inputs(C3_PAIR_INDEX_CACHES, C3_SAE_CACHE),
                 products=(RESULTS_PAIR / "negative_sampling_audit",),
             )
@@ -409,13 +413,14 @@ def _pair_experiments() -> list[Experiment]:
 
     # PPI-fingerprint pair-scale predictor (in-house participation-channel
     # baseline): train XGB on each family's native-train endpoints, score its
-    # eval split. Backbone/layer is a formal matrix axis: each (family, axis)
-    # is one cell (6 families x 3 axes = 18), so all three backbone/layer
-    # results enter runs.jsonl + provenance history. The runner sweeps every
-    # rep within a cell and writes a per-cell summary. Each family reads its own
-    # v1 protein cache (PPI_PREDICTION_CACHES); PRING additionally needs its
-    # per-species caches. All three axis channels co-exist in one cache payload
-    # (ESM-C L60/L80 + ESM-2 L33), so a family's inputs are axis-independent.
+    # eval split(s). Axes: family × (backbone, layer) × seed. Seed 42 is
+    # DEFAULT_SEED and already completed for the primary matrix; registry cells
+    # for seeds 43/44 fill the remaining multi-seed slots. Results land under
+    # results/main/ppi_fingerprint/{family}/xgb/seed_{S}/summaries/{axis}.json.
+    # Each family reads its own v1 protein cache (PPI_PREDICTION_CACHES); PRING
+    # additionally needs its per-species caches.
+    from src.ppi_fingerprint.config import FINGERPRINT_SEEDS
+
     fingerprint_family_inputs = {
         "c1": (C1_SAE_CACHE,),
         "c2": (C2_SAE_CACHE,),
@@ -424,28 +429,53 @@ def _pair_experiments() -> list[Experiment]:
         "bernett": (BERNETT_SAE_CACHE,),
         "pring": tuple(PRING_SPECIES_SAE_CACHES.values()),
     }
-    # (backbone, layer) axes -- product path:
-    # results/main/ppi_fingerprint/{family}/xgb/summaries/{backbone}L{layer}.json
     fingerprint_axes = (("esmc", 60), ("esmc", 80), ("esm2", 33))
     for family, cache_inputs in fingerprint_family_inputs.items():
         for backbone, layer in fingerprint_axes:
             b_tag = f"{backbone}L{layer}"
-            exps.append(
-                Experiment(
-                    name=f"pair.ppi_fingerprint.{family}.{b_tag}",
-                    layer="pair",
-                    script="scripts/audit_pair/run_ppi_fingerprint_baseline.py",
-                    args=(
-                        "--model", "xgb", "--family", family,
-                        "--backbone", backbone, "--layer", str(layer),
-                    ),
-                    inputs=cache_inputs,
-                    products=(
-                        RESULTS_MAIN / "ppi_fingerprint" / family / "xgb"
-                        / "summaries" / f"{b_tag}.json",
-                    ),
+            for seed in FINGERPRINT_SEEDS:
+                exps.append(
+                    Experiment(
+                        name=f"pair.ppi_fingerprint.{family}.{b_tag}.seed{seed}",
+                        layer="pair",
+                        script="scripts/audit_pair/run_ppi_fingerprint_baseline.py",
+                        args=(
+                            "--model", "xgb", "--family", family,
+                            "--backbone", backbone, "--layer", str(layer),
+                            "--seed", str(seed),
+                        ),
+                        inputs=cache_inputs,
+                        products=(
+                            RESULTS_MAIN / "ppi_fingerprint" / family / "xgb"
+                            / f"seed_{seed}" / "summaries" / f"{b_tag}.json",
+                        ),
+                    )
                 )
+
+    # C1/C2/C3 TabPFN Top-K SAE probe. Each family recomputes its OWN binary/sym
+    # feature ranking (full 32768-dim XGBoost + val TreeSHAP) rather than reusing
+    # the single C3-derived ranking the old repo shipped, then fits TabPFN on the
+    # Top-200 SAE ids (400 pair columns). Self-contained per family: the only
+    # input is that family's v1 protein cache (endpoints assembled on the fly).
+    clevel_topk_cache = {
+        "c1": C1_SAE_CACHE,
+        "c2": C2_SAE_CACHE,
+        "c3": C3_SAE_CACHE,
+    }
+    for family, cache in clevel_topk_cache.items():
+        exps.append(
+            Experiment(
+                name=f"pair.clevel_tabpfn_topk.{family}",
+                layer="pair",
+                script="scripts/audit_pair/run_clevel_tabpfn_topk.py",
+                args=("--family", family),
+                inputs=(cache,),
+                products=(
+                    RESULTS_PAIR / "tabpfn" / family / "tabpfn_topk"
+                    / "tabpfn_sae-id_k200.json",
+                ),
             )
+        )
 
     return exps
 
@@ -519,24 +549,43 @@ def _analysis_experiments() -> list[Experiment]:
 
 
 def _interpretability_experiments() -> list[Experiment]:
-    # Explains TabPFN retrieval on C3: consumes the TabPFN ranking product from
-    # the pair TabPFN step and materializes C3 endpoint features on the fly
-    # through the C3 pair-index caches + v1 protein cache. All declared as
-    # inputs so the cell stays gated until every dependency is ready.
-    from conf.paths import TABPFN_RANKING, TABPFN_RETRIEVAL
+    # TabPFN retrieval explanations + attention/feature/label leakage audits,
+    # one cell per RAPPPID leakage level. Each family consumes its own
+    # tabpfn_topk ranking + pair-index caches + v1 protein cache; products land
+    # under per-family subdirs so the three levels never overwrite each other.
+    from conf.paths import (
+        clevel_tabpfn_attention_audit_dir,
+        clevel_tabpfn_ranking,
+        clevel_tabpfn_retrieval_dir,
+    )
 
-    return [
-        Experiment(
-            name="interp.tabpfn_retrieval",
-            layer="interpretability",
-            script="scripts/analysis/explain_tabpfn_retrieval.py",
-            inputs=(
-                TABPFN_RANKING,
-                *_pair_index_inputs(C3_PAIR_INDEX_CACHES, C3_SAE_CACHE),
-            ),
-            products=(TABPFN_RETRIEVAL,),
-        ),
-    ]
+    exps: list[Experiment] = []
+    for family in ("c1", "c2", "c3"):
+        ranking = clevel_tabpfn_ranking(family)
+        pair_inputs = _pair_index_inputs(
+            CLEVEL_PAIR_INDEX_CACHES[family], CLEVEL_SAE_CACHES[family]
+        )
+        exps.append(
+            Experiment(
+                name=f"interp.tabpfn_retrieval.{family}",
+                layer="interpretability",
+                script="scripts/analysis/explain_tabpfn_retrieval.py",
+                args=("--family", family),
+                inputs=(ranking, *pair_inputs),
+                products=(clevel_tabpfn_retrieval_dir(family),),
+            )
+        )
+        exps.append(
+            Experiment(
+                name=f"pair.tabpfn_attention_feature_label.{family}",
+                layer="pair",
+                script="scripts/audit_pair/audit_tabpfn_clevel_attention_feature_label.py",
+                args=("--family", family),
+                inputs=(ranking, *pair_inputs),
+                products=(clevel_tabpfn_attention_audit_dir(family),),
+            )
+        )
+    return exps
 
 
 # ---------------------------------------------------------------------------

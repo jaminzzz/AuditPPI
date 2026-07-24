@@ -213,17 +213,40 @@ PAIR_CACHES_BINARY = PAIR_CACHES / "binary_thr0"
 # {split}_embeddings.pt dumps. Row order matches the pair CSV (and thus the C3
 # pair-id alignment parquet) via kept_pair_indices.
 PAIR_INDEX_CACHES = SAE / "pair_caches"
+# RAPPPID C1/C2/C3 pair-index caches. One small file per (family, split) points
+# into the family's v1 protein cache (seq2idx keyed). Consumers pick a channel
+# at read time, so one index cache serves every backbone/layer/rep.
+C1_PAIR_INDEX_CACHES = {
+    split: PAIR_INDEX_CACHES / "c1" / f"{split}_pairs.pt"
+    for split in ("train", "val", "test")
+}
+C2_PAIR_INDEX_CACHES = {
+    split: PAIR_INDEX_CACHES / "c2" / f"{split}_pairs.pt"
+    for split in ("train", "val", "test")
+}
 C3_PAIR_INDEX_CACHES = {
     split: PAIR_INDEX_CACHES / "c3" / f"{split}_pairs.pt"
     for split in ("train", "val", "test")
 }
+CLEVEL_PAIR_INDEX_CACHES = {
+    "c1": C1_PAIR_INDEX_CACHES,
+    "c2": C2_PAIR_INDEX_CACHES,
+    "c3": C3_PAIR_INDEX_CACHES,
+}
+CLEVEL_SAE_CACHES = {
+    "c1": C1_SAE_CACHE,
+    "c2": C2_SAE_CACHE,
+    "c3": C3_SAE_CACHE,
+}
 # Cross-species pair-index caches. No val CSV exists on disk: the human_train
 # graph is the only train source and val is carved from it in-memory (stratified,
 # matching the ppi_fingerprint baseline convention). So we build one cache for
-# human_train plus one per held-out species test graph; the topk consumer splits
-# human_train into train/val itself.
+# human_train, one for the in-distribution human_test graph, plus one per
+# held-out species test graph; the topk consumer splits human_train into
+# train/val itself and scores human_test (in-distribution) separately from the
+# zero-shot species.
 CROSS_SPECIES_PAIR_SPLITS = (
-    "human_train", "ecoli", "fly", "mouse", "worm", "yeast",
+    "human_train", "human_test", "ecoli", "fly", "mouse", "worm", "yeast",
 )
 CROSS_SPECIES_PAIR_INDEX_CACHES = {
     split: PAIR_INDEX_CACHES / "cross_species" / f"{split}_pairs.pt"
@@ -244,12 +267,50 @@ SAE_SUPP_INPUTS = SAE / "supplementary_inputs"
 
 # === TabPFN artifacts =====================================================
 # TabPFN products are a Ladder-2 (pair-scale) result, so they live under
-# results/audit_pair/tabpfn/. feature_ranking_binary_sym.csv (TABPFN_RANKING)
-# is a product that later scripts also consume as a downstream INPUT.
+# results/audit_pair/tabpfn/. Per-family rankings land at
+# ``tabpfn/{family}/tabpfn_topk/feature_ranking_binary_sym.csv`` (produced by
+# ``run_clevel_tabpfn_topk.py``); the shared ``TABPFN_RANKING`` / ``TABPFN_TOPK``
+# paths keep the pre-family layout for back-compat consumers that still point
+# there. Retrieval explanations and attention audits write under the family's
+# own subdir so c1/c2/c3 never overwrite each other.
 TABPFN = RESULTS_PAIR / "tabpfn"
 TABPFN_TOPK = TABPFN / "tabpfn_topk"
 TABPFN_RANKING = TABPFN_TOPK / "feature_ranking_binary_sym.csv"
 TABPFN_RETRIEVAL = TABPFN / "tabpfn_retrieval_explanations"
+
+
+def clevel_tabpfn_ranking(family: str) -> Path:
+    """Per-family binary/sym feature ranking produced by the c-level TabPFN top-k run."""
+    return TABPFN / family / "tabpfn_topk" / "feature_ranking_binary_sym.csv"
+
+
+def clevel_tabpfn_retrieval_dir(family: str) -> Path:
+    """Per-family TabPFN retrieval-explanation product directory."""
+    return TABPFN / family / "tabpfn_retrieval_explanations"
+
+
+def clevel_tabpfn_attention_audit_dir(family: str) -> Path:
+    """Per-family attention/feature/label leakage-audit product directory."""
+    return RESULTS_PAIR / "leakage_audit" / f"tabpfn_{family}_attention_feature_label"
+
+
+# Cross-species TabPFN artifacts. The Top-K runner writes its own SHAP ranking
+# (like the c-level runner) instead of borrowing the C3-derived one, so the
+# attention audit selects the same Top-K SAE ids the cross-species probe used.
+# One fit on the human_train graph is scored against every eval graph, so the
+# audit fans out into per-graph subdirs (human_test + the 5 held-out species).
+CROSS_SPECIES_TABPFN_TOPK = TABPFN / "cross_species_tabpfn_topk"
+CROSS_SPECIES_TABPFN_RANKING = CROSS_SPECIES_TABPFN_TOPK / "feature_ranking_binary_sym.csv"
+
+
+def cross_species_tabpfn_attention_audit_dir(graph: str) -> Path:
+    """Per-graph attention/feature/label leakage-audit product directory."""
+    return (
+        RESULTS_PAIR
+        / "leakage_audit"
+        / "tabpfn_cross_species_attention_feature_label"
+        / graph
+    )
 
 # Unmodified clone of https://github.com/PriorLabs/tabpfn. Keep the repository
 # (including its own .git metadata) outside src/; only its Python source path is
@@ -318,6 +379,23 @@ CROSS_SPECIES_CSVS = [
     "worm.ppi.qrels.seq.test.csv",
     "yeast.ppi.qrels.seq.test.csv",
 ]
+
+
+def cross_species_pair_csv(graph: str) -> Path:
+    """CSV (``query,text,label``) backing a cross-species pair-index cache graph.
+
+    ``human_train``/``human_test`` map to the human train/test CSVs; every other
+    graph is a held-out species test CSV (``{species}.ppi.qrels.seq.test.csv``).
+    Row order matches the identity-mapped pair-index caches, so a materialized
+    row index gathers the same CSV row.
+    """
+    if graph == "human_train":
+        name = "human.ppi.qrels.seq.train.csv"
+    elif graph == "human_test":
+        name = "human.ppi.qrels.seq.test.csv"
+    else:
+        name = f"{graph}.ppi.qrels.seq.test.csv"
+    return CROSS_SPECIES_DIR / name
 
 # Bernett gold-standard PPI (MINT GeneralPPI split): Intra1/0/2 = train/val/test.
 BERNETT_DIR = BASELINES / "mint" / "downstream" / "GeneralPPI" / "ppi"

@@ -100,7 +100,7 @@ class TabMPairPredictor:
         self.pair_mode = model.pair_mode
         self._abba = needs_abba(model.pair_mode)
 
-    def predict_proba_pairs(self, a, b, batch_size: int = 4096) -> np.ndarray:
+    def predict_proba_pairs(self, a, b, batch_size: int = 512) -> np.ndarray:
         self.model.eval()
         output = []
         with torch.no_grad():

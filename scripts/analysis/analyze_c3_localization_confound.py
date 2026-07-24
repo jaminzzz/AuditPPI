@@ -30,7 +30,7 @@ Outputs:
   results/audit_pair/negative_sampling_audit/c3_{split}_protein_compartments.parquet
 
 Run:
-    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/audit_pair/analyze_c3_localization_confound.py --split test
+    /data/wmzhu/anaconda3/envs/E1/bin/python scripts/analysis/analyze_c3_localization_confound.py --split test
 """
 from __future__ import annotations
 

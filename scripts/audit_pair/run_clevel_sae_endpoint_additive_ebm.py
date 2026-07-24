@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train a no-interaction endpoint EBM for C3.
+"""Train a no-interaction endpoint EBM for a C-level family (c1/c2/c3).
 
 This uses InterpretML's Explainable Boosting Machine, but keeps the endpoint
 diagnostic restriction:
@@ -11,6 +11,11 @@ The EBM is trained on endpoint occurrences: each pair contributes two protein
 rows with the pair label. At pair scoring time the two endpoint scores are
 added. We set ``interactions=0`` in EBM, so alpha(p) is an additive sum of
 single-feature shape functions. The final pair score has no global bias.
+
+The family is selected by ``--family {c1,c2,c3}``, which routes both the
+protein feature cache (``CLEVEL_SAE_CACHES[family]``) and the per-split
+pair-index caches (``CLEVEL_PAIR_INDEX_CACHES[family][split]``). Endpoint rows
+are gathered from the pair-index cache via ``materialize_pair_endpoints``.
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ import pandas as pd
 import torch
 
 from conf.model import BACKBONES, DEFAULT_BACKBONE, DEFAULT_SEED, resolve_backbone_layer
-from conf.paths import RESULTS_PAIR, C3_PAIR_INDEX_CACHES, C3_SAE_CACHE
+from conf.paths import RESULTS_PAIR, CLEVEL_PAIR_INDEX_CACHES, CLEVEL_SAE_CACHES
 from src.eval.metrics import pair_score_metrics as metrics
 from src.experiments.results import dump_experiment
 from src.features.pairs import (
@@ -45,7 +50,7 @@ from src.models.estimators.ebm import (
     make_endpoint_ebm,
 )
 
-OUT_DIR = RESULTS_PAIR / "c3_endpoint_additive_ebm_sae"
+FAMILIES = ("c1", "c2", "c3")
 
 # rep choices exposed on the CLI; both resolve to a v1 protein-cache channel via
 # materialize_pair_endpoints (sae_max -> sae_max, binary -> sae_binary).
@@ -53,6 +58,7 @@ REP_CHOICES = ("sae_max", "binary")
 
 
 def load_split(
+    family: str,
     rep: str,
     split: str,
     protein_cache: dict,
@@ -60,7 +66,7 @@ def load_split(
     backbone: str,
     layer: int | None,
 ) -> dict[str, np.ndarray]:
-    index_cache = load_pair_index_cache(C3_PAIR_INDEX_CACHES[split])
+    index_cache = load_pair_index_cache(CLEVEL_PAIR_INDEX_CACHES[family][split])
     emb_a, emb_b, labels = materialize_pair_endpoints(
         index_cache, protein_cache, rep=rep, backbone=backbone, layer=layer
     )
@@ -115,6 +121,9 @@ def write_pair_predictions(path: Path, split: dict[str, np.ndarray], prob: np.nd
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--family", choices=FAMILIES, default="c3",
+                    help="C-level leakage family (c1/c2/c3). Routes both the "
+                    "protein feature cache and the pair-index caches.")
     ap.add_argument("--rep", choices=REP_CHOICES, default="sae_max")
     ap.add_argument("--backbone", choices=BACKBONES, default=DEFAULT_BACKBONE)
     ap.add_argument("--layer", type=int, default=None,
@@ -129,19 +138,27 @@ def main() -> None:
     ap.add_argument("--early-stopping-rounds", type=int, default=100)
     ap.add_argument("--min-samples-leaf", type=int, default=4)
     ap.add_argument("--n-jobs", type=int, default=-2)
-    ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="Output dir. Defaults to "
+                    "RESULTS_PAIR/{family}_endpoint_additive_ebm_sae.")
     args = ap.parse_args()
 
+    if args.out_dir is None:
+        args.out_dir = (
+            RESULTS_PAIR
+            / f"{args.family}_endpoint_additive_ebm_sae"
+            / f"seed_{args.seed}"
+        )
     layer = resolve_backbone_layer(args.backbone, args.layer)
     seed_all(args.seed)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     print("[load] embeddings", flush=True)
-    protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
-    train = load_split(args.rep, "train", protein_cache, backbone=args.backbone, layer=layer)
-    val = load_split(args.rep, "val", protein_cache, backbone=args.backbone, layer=layer)
-    test = load_split(args.rep, "test", protein_cache, backbone=args.backbone, layer=layer)
+    protein_cache = load_protein_feature_cache(CLEVEL_SAE_CACHES[args.family])
+    train = load_split(args.family, args.rep, "train", protein_cache, backbone=args.backbone, layer=layer)
+    val = load_split(args.family, args.rep, "val", protein_cache, backbone=args.backbone, layer=layer)
+    test = load_split(args.family, args.rep, "test", protein_cache, backbone=args.backbone, layer=layer)
     print(
-        f"[data] rep={args.rep} backbone={args.backbone} layer={layer} "
+        f"[data] family={args.family} rep={args.rep} backbone={args.backbone} layer={layer} "
         f"train={train['y'].size:,} val={val['y'].size:,} test={test['y'].size:,} "
         f"dim={train['a'].shape[1]:,}",
         flush=True,
@@ -174,12 +191,13 @@ def main() -> None:
         ebm, test, feature_ids, selected, args.rep
     )
     stem = (
-        f"c3_endpoint_additive_ebm_{args.rep}_{args.backbone}_l{layer}_"
+        f"{args.family}_endpoint_additive_ebm_{args.rep}_{args.backbone}_l{layer}_"
         f"top{args.top_k}_bins{args.max_bins}_rounds{args.max_rounds}_nobias_nointer"
     )
     result = {
         "model": "endpoint_additive_ebm_no_interactions_no_pair_bias",
         "formula": "logit(PPI(A,B)) = EBM_no_interactions(SAE_A)-intercept + EBM_no_interactions(SAE_B)-intercept",
+        "family": args.family,
         "rep": args.rep,
         "backbone": args.backbone,
         "layer": layer,
@@ -218,7 +236,7 @@ def main() -> None:
     dump_experiment(
         result_path,
         task="pair.endpoint_additive_ebm",
-        dataset="c3",
+        dataset=args.family,
         features=args.rep,
         split="test",
         model="endpoint_additive_ebm",

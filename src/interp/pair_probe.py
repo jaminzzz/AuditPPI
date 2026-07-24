@@ -352,6 +352,93 @@ def evaluate_species(
     )
 
 
+def compute_sym_shap_ranking(
+    train_x: np.ndarray,
+    train_y: np.ndarray,
+    val_x: np.ndarray,
+    val_y: np.ndarray,
+    *,
+    sae_dim: int,
+    trees: int = 1000,
+    depth: int = 4,
+    lr: float = 0.05,
+    seed: int = 0,
+    cpu: bool = False,
+) -> list[dict]:
+    """Fit XGB on full sym features, rank every column by mean|TreeSHAP| on val.
+
+    Shared by the C-level and cross-species Top-K runners so both derive their
+    own ranking with identical semantics. ``train_x``/``val_x`` are the full
+    ``[A*B, |A-B|]`` matrices (``2 * sae_dim`` columns). Returns backup-format
+    rows sorted by descending mean|shap|::
+
+        rank, flat_feature, sae_feature, block, rank_score, xgb_importance,
+        mean_abs_shap, mean_signed_shap
+    """
+    import xgboost as xgb
+
+    feature_dim = train_x.shape[1]  # 2 * sae_dim
+    clf = fit_xgb(
+        train_x, train_y, val_x, val_y,
+        trees=trees, depth=depth, lr=lr, seed=seed, cpu=cpu, verbose=50,
+    )
+    booster = clf.get_booster()
+
+    # TreeSHAP on val. pred_contribs returns (n, feature_dim + 1); last col is the
+    # bias term. booster was re-homed to CPU by fit_xgb, so this runs on CPU.
+    dval = xgb.DMatrix(val_x)
+    contribs = booster.predict(dval, pred_contribs=True)
+    shap = contribs[:, :feature_dim]  # drop bias column
+    mean_abs = np.abs(shap).mean(axis=0)
+    mean_signed = shap.mean(axis=0)
+    del contribs, shap, dval
+    gc.collect()
+
+    # XGB gain per flat feature (booster keys like "f123").
+    gain = np.zeros(feature_dim, dtype=np.float64)
+    for key, value in booster.get_score(importance_type="gain").items():
+        if key.startswith("f"):
+            idx = int(key[1:])
+            if 0 <= idx < feature_dim:
+                gain[idx] = float(value)
+
+    order = np.argsort(mean_abs)[::-1]
+    rows: list[dict] = []
+    for rank, flat in enumerate(order, start=1):
+        flat = int(flat)
+        block = BLOCK_PRODUCT if flat < sae_dim else BLOCK_ABSDIFF
+        rows.append({
+            "rank": rank,
+            "flat_feature": flat,
+            "sae_feature": flat % sae_dim,
+            "block": block,
+            "rank_score": float(mean_abs[flat]),
+            "xgb_importance": float(gain[flat]),
+            "mean_abs_shap": float(mean_abs[flat]),
+            "mean_signed_shap": float(mean_signed[flat]),
+        })
+    return rows
+
+
+def write_feature_ranking(path: Path, rows: list[dict], split_tag: str) -> None:
+    """Write a ranking in the backup column layout (split-tagged shap columns)."""
+    fields = [
+        "rank", "flat_feature", "sae_feature", "block", "rank_score",
+        "xgb_importance",
+        f"{split_tag}_mean_abs_shap", f"{split_tag}_mean_signed_shap",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(fields)
+        for r in rows:
+            writer.writerow([
+                r["rank"], r["flat_feature"], r["sae_feature"], r["block"],
+                r["rank_score"], r["xgb_importance"],
+                r["mean_abs_shap"], r["mean_signed_shap"],
+            ])
+
+
 def evaluate_species_v1(
     model,
     index_cache_path: Path,
@@ -398,6 +485,7 @@ __all__ = [
     "BLOCK_PRODUCT",
     "SAE_DIM",
     "build_dense_sym_topk",
+    "compute_sym_shap_ranking",
     "evaluate_species",
     "evaluate_species_v1",
     "fit_logistic_probe",
@@ -409,4 +497,5 @@ __all__ = [
     "read_feature_ranking",
     "sae_dim_for_backbone",
     "select_top_features",
+    "write_feature_ranking",
 ]

@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
-"""Audit C3 TabPFN retrieval risk using attention, feature overlap, and labels.
+"""Audit TabPFN retrieval risk using attention, feature overlap, and labels.
 
-This deliberately avoids structure comparisons. It asks whether C3 test rows
-receive high TabPFN decoder attention from training rows that are both feature-
-similar and label-concordant.
+Works for any RAPPPID leakage level (``--family c1|c2|c3``). Deliberately
+avoids structure comparisons: it asks whether held-out rows receive high
+TabPFN decoder attention from training rows that are both feature-similar and
+label-concordant.
+
+Each family uses its own pair-index caches, protein cache, and per-family
+binary/sym ranking. Products land under a per-family subdir::
+
+    results/audit_pair/leakage_audit/tabpfn_{family}_attention_feature_label/
+
+    PY=/data/wmzhu/anaconda3/envs/E1/bin/python
+    $PY scripts/audit_pair/audit_tabpfn_clevel_attention_feature_label.py --family c3
+    $PY scripts/audit_pair/audit_tabpfn_clevel_attention_feature_label.py --family c1
+    $PY scripts/audit_pair/audit_tabpfn_clevel_attention_feature_label.py --family c2
 """
 
 from __future__ import annotations
@@ -27,14 +38,16 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 from conf.model import DEFAULT_BACKBONE, DEFAULT_SEED, resolve_backbone_layer
 from conf.paths import (
-    RESULTS_PAIR,
-    C3_PAIR_INDEX_CACHES,
-    C3_SAE_CACHE,
+    CLEVEL_PAIR_INDEX_CACHES,
+    CLEVEL_SAE_CACHES,
+    RAPPPID_C1_DIR,
+    RAPPPID_C2_DIR,
     RAPPPID_C3_DIR,
-    TABPFN_RANKING,
+    clevel_tabpfn_attention_audit_dir,
+    clevel_tabpfn_ranking,
 )
-from src.runtime import setup_device
 from src.eval.classification import probe_classification_metrics as metrics
+from src.experiments.results import dump_experiment
 from src.features.pairs import load_protein_feature_cache
 from src.interp.pair_probe import (
     build_dense_sym_topk,
@@ -52,21 +65,53 @@ from src.interp.tabpfn_retrieval import (
     top_shared_features,
 )
 from src.models.estimators.tabpfn import fit_tabpfn
-from src.experiments.results import dump_experiment
-DEFAULT_RANKING = TABPFN_RANKING
-DEFAULT_C3_DIR = RAPPPID_C3_DIR
-DEFAULT_OUT = RESULTS_PAIR / "leakage_audit/tabpfn_c3_attention_feature_label"
+from src.runtime import setup_device
+
+FAMILIES = ("c1", "c2", "c3")
+FAMILY_DIRS = {
+    "c1": RAPPPID_C1_DIR,
+    "c2": RAPPPID_C2_DIR,
+    "c3": RAPPPID_C3_DIR,
+}
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--ranking-csv", type=Path, default=DEFAULT_RANKING)
-    p.add_argument("--c3-dir", type=Path, default=DEFAULT_C3_DIR)
-    p.add_argument("--out-dir", type=Path, default=DEFAULT_OUT)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--family",
+        choices=FAMILIES,
+        default="c3",
+        help="RAPPPID leakage level. Ranking, caches, CSVs, and out-dir are "
+        "all resolved from this (default: c3).",
+    )
+    p.add_argument(
+        "--ranking-csv",
+        type=Path,
+        default=None,
+        help="override ranking CSV; default is the family's own tabpfn_topk ranking.",
+    )
+    p.add_argument(
+        "--clevel-dir",
+        type=Path,
+        default=None,
+        help="override RAPPPID CSV dir; default is data/raw/rapppid_{family}.",
+    )
+    p.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="override product dir; default is leakage_audit/tabpfn_{family}_attention_feature_label.",
+    )
     p.add_argument("--rep", choices=["binary", "sae_max"], default="binary")
     p.add_argument("--backbone", default=DEFAULT_BACKBONE)
-    p.add_argument("--layer", type=int, default=None,
-                   help="SAE layer; defaults to the backbone's default layer.")
+    p.add_argument(
+        "--layer",
+        type=int,
+        default=None,
+        help="SAE layer; defaults to the backbone's default layer.",
+    )
     p.add_argument("--query-split", choices=["val", "test"], default="test")
     p.add_argument("--device-id", type=int, default=None)
     p.add_argument("--tabpfn-device", choices=["cuda", "cpu", "auto"], default="cuda")
@@ -83,7 +128,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--ignore-pretraining-limits", action="store_true", default=True)
     p.add_argument("--jaccard-high", type=float, default=0.80)
     p.add_argument("--jaccard-moderate", type=float, default=0.60)
-    p.add_argument("--write-shared-features", action="store_true", help="include shared feature ids in neighbor table")
+    p.add_argument(
+        "--write-shared-features",
+        action="store_true",
+        help="include shared feature ids in neighbor table",
+    )
     return p.parse_args()
 
 
@@ -164,22 +213,38 @@ def draw_hist(svg: list[str], values: np.ndarray, x: float, y: float, w: float, 
     svg.append(svg_text(x + w - 135, y + 28, f"median {np.median(values):.3f}", 12, "#4b5563"))
 
 
-def draw_svg(out_dir: Path, rows: list[dict[str, object]], summary: dict[str, object]) -> None:
+def draw_svg(out_dir: Path, family: str, rows: list[dict[str, object]], summary: dict[str, object]) -> None:
     if not rows:
         return
-    arr = {key: np.array([float(r[key]) for r in rows], dtype=float) for key in [
-        "max_input_jaccard",
-        "attention_weighted_jaccard",
-        "topk_same_label_rate",
-        "topk_same_label_attention_share",
-        "risk_score",
-    ]}
+    arr = {
+        key: np.array([float(r[key]) for r in rows], dtype=float)
+        for key in [
+            "max_input_jaccard",
+            "attention_weighted_jaccard",
+            "topk_same_label_rate",
+            "topk_same_label_attention_share",
+            "risk_score",
+        ]
+    }
     svg: list[str] = [
         '<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="980" viewBox="0 0 1500 980">',
         '<rect width="1500" height="980" fill="#fbfcfd"/>',
         '<style>text{font-family:Inter,Arial,Helvetica,sans-serif}.mono{font-family:Menlo,Consolas,monospace}</style>',
-        svg_text(54, 58, "C3 TabPFN Attention/Feature/Label Audit", 28, "#111827", "700"),
-        svg_text(54, 88, "Non-structural train-test near-duplicate risk scan over TabPFN decoder attention neighbors.", 15, "#4b5563"),
+        svg_text(
+            54,
+            58,
+            f"{family.upper()} TabPFN Attention/Feature/Label Audit",
+            28,
+            "#111827",
+            "700",
+        ),
+        svg_text(
+            54,
+            88,
+            "Non-structural train-test near-duplicate risk scan over TabPFN decoder attention neighbors.",
+            15,
+            "#4b5563",
+        ),
     ]
 
     cards = [
@@ -219,16 +284,32 @@ def draw_svg(out_dir: Path, rows: list[dict[str, object]], summary: dict[str, ob
         svg.append(svg_text(1034, y + 18, detail, 11, "#64748b"))
         y += 38
 
-    svg.append(svg_text(54, 936, "Risk score = topK same-label attention mass x max input-feature Jaccard among topK attention neighbors.", 12, "#6b7280"))
-    svg.append(svg_text(54, 956, "Attention is associative evidence over TabPFN row embeddings, not a causal proof of leakage.", 12, "#6b7280"))
+    svg.append(
+        svg_text(
+            54,
+            936,
+            "Risk score = topK same-label attention mass x max input-feature Jaccard among topK attention neighbors.",
+            12,
+            "#6b7280",
+        )
+    )
+    svg.append(
+        svg_text(
+            54,
+            956,
+            "Attention is associative evidence over TabPFN row embeddings, not a causal proof of leakage.",
+            12,
+            "#6b7280",
+        )
+    )
     svg.append("</svg>")
     (out_dir / "attention_feature_label_audit.svg").write_text("\n".join(svg))
 
 
-def make_report(out_dir: Path, summary: dict[str, object], rows: list[dict[str, object]]) -> None:
+def make_report(out_dir: Path, family: str, summary: dict[str, object], rows: list[dict[str, object]]) -> None:
     top_rows = sorted(rows, key=lambda r: float(r["risk_score"]), reverse=True)[:20]
     lines = [
-        "# C3 TabPFN Attention/Feature/Label Audit",
+        f"# {family.upper()} TabPFN Attention/Feature/Label Audit",
         "",
         "Scope: non-structural audit over TabPFN decoder-attention neighbors.",
         "",
@@ -277,7 +358,12 @@ def make_report(out_dir: Path, summary: dict[str, object], rows: list[dict[str, 
 
 def main() -> int:
     args = parse_args()
-    out_dir = args.out_dir
+    family = args.family
+    ranking_csv = args.ranking_csv or clevel_tabpfn_ranking(family)
+    clevel_dir = args.clevel_dir or FAMILY_DIRS[family]
+    out_dir = args.out_dir or clevel_tabpfn_attention_audit_dir(family)
+    pair_index_caches = CLEVEL_PAIR_INDEX_CACHES[family]
+    protein_cache_path = CLEVEL_SAE_CACHES[family]
     out_dir.mkdir(parents=True, exist_ok=True)
 
     start_time = time.time()
@@ -295,7 +381,7 @@ def main() -> int:
 
     layer = resolve_backbone_layer(args.backbone, args.layer)
     sae_dim = sae_dim_for_backbone(args.backbone)
-    ranking = read_ranking(args.ranking_csv)
+    ranking = read_ranking(ranking_csv)
     flat_features, feature_meta = select_top_features(
         ranking, args.top_k, args.top_k_mode, sae_dim=sae_dim
     )
@@ -303,21 +389,41 @@ def main() -> int:
         json.dumps(feature_meta, indent=2)
     )
 
+    # Cap train rows to TabPFN's context budget so Xtr/ytr/embeddings/attention
+    # stay row-aligned. TabPFN's internal SUBSAMPLE_SAMPLES (default 50k) would
+    # otherwise silently shrink train embeddings while ytr stays full-size —
+    # which breaks attention[i, ytr == label] once train_n > that budget (C1).
+    # When train_n is already ≤ the budget (C2/C3), stratified_subsample is a no-op.
+    train_max_rows = args.train_subsample
+    if train_max_rows is None and args.tabpfn_subsample_samples > 0:
+        train_max_rows = args.tabpfn_subsample_samples
+
     print(
-        f"[load] train/{args.query_split} via C3 pair-index caches "
-        f"({args.rep} {args.backbone}L{layer} sae_dim={sae_dim})",
+        f"[load] {family} train/{args.query_split} via pair-index caches "
+        f"({args.rep} {args.backbone}L{layer} sae_dim={sae_dim}; "
+        f"train_max_rows={train_max_rows})",
         flush=True,
     )
-    protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
+    protein_cache = load_protein_feature_cache(protein_cache_path)
     atr, btr, ytr, train_original_idx = materialize_pair_split(
-        C3_PAIR_INDEX_CACHES["train"], protein_cache, rep=args.rep,
-        backbone=args.backbone, layer=layer, max_rows=args.train_subsample,
-        seed=args.seed, return_indices=True,
+        pair_index_caches["train"],
+        protein_cache,
+        rep=args.rep,
+        backbone=args.backbone,
+        layer=layer,
+        max_rows=train_max_rows,
+        seed=args.seed,
+        return_indices=True,
     )
     aq, bq, yq, query_original_idx = materialize_pair_split(
-        C3_PAIR_INDEX_CACHES[args.query_split], protein_cache, rep=args.rep,
-        backbone=args.backbone, layer=layer, max_rows=None,
-        seed=args.seed + 1, return_indices=True,
+        pair_index_caches[args.query_split],
+        protein_cache,
+        rep=args.rep,
+        backbone=args.backbone,
+        layer=layer,
+        max_rows=None,
+        seed=args.seed + 1,
+        return_indices=True,
     )
 
     if args.max_queries and args.max_queries < len(yq):
@@ -329,7 +435,11 @@ def main() -> int:
     Xq_all = build_dense_sym_topk(aq, bq, flat_features, sae_dim=sae_dim)
     del atr, btr, aq, bq
     gc.collect()
-    print(f"[data] train={Xtr.shape} {args.query_split}={Xq_all.shape} audited_queries={len(query_positions)}", flush=True)
+    print(
+        f"[data] train={Xtr.shape} {args.query_split}={Xq_all.shape} "
+        f"audited_queries={len(query_positions)}",
+        flush=True,
+    )
 
     print(f"[fit] TabPFN device={tabpfn_device}", flush=True)
     model = fit_tabpfn(
@@ -350,8 +460,8 @@ def main() -> int:
     Etr, train_configs = embeddings_with_configs(model, Xtr, "train")
     Etr_mean_norm = l2_normalize(Etr.mean(axis=0))
 
-    train_df = read_split_csv(args.c3_dir, "train")
-    query_df = read_split_csv(args.c3_dir, args.query_split)
+    train_df = read_split_csv(clevel_dir, "train", family=family)
+    query_df = read_split_csv(clevel_dir, args.query_split, family=family)
     ytr = ytr.astype(np.int64, copy=False)
     yq = yq.astype(np.int64, copy=False)
 
@@ -363,7 +473,10 @@ def main() -> int:
         end = min(start + args.query_batch_size, len(query_positions))
         batch_pos = query_positions[start:end]
         Xq = Xq_all[batch_pos]
-        print(f"[audit] query batch {batch_no}: rows {start}-{end} / {len(query_positions)}", flush=True)
+        print(
+            f"[audit] query batch {batch_no}: rows {start}-{end} / {len(query_positions)}",
+            flush=True,
+        )
 
         Eq, query_configs = embeddings_with_configs(model, Xq, "test")
         configs = query_configs if len(query_configs) == Eq.shape[0] else train_configs
@@ -389,30 +502,59 @@ def main() -> int:
             label_match = labels == query_label
             positive = labels == 1
             topk_attention_mass = float(np.nansum(att)) if attention is not None else float("nan")
-            same_label_attn_mass = float(np.nansum(att[label_match])) if attention is not None else float("nan")
-            positive_attn_mass = float(np.nansum(att[positive])) if attention is not None else float("nan")
-            same_label_share = safe_div(same_label_attn_mass, topk_attention_mass) if attention is not None else float("nan")
-            positive_share = safe_div(positive_attn_mass, topk_attention_mass) if attention is not None else float("nan")
-            weighted_jaccard = safe_div(float(np.nansum(att * jac)), topk_attention_mass) if attention is not None else float(np.mean(jac))
+            same_label_attn_mass = (
+                float(np.nansum(att[label_match])) if attention is not None else float("nan")
+            )
+            positive_attn_mass = (
+                float(np.nansum(att[positive])) if attention is not None else float("nan")
+            )
+            same_label_share = (
+                safe_div(same_label_attn_mass, topk_attention_mass)
+                if attention is not None
+                else float("nan")
+            )
+            positive_share = (
+                safe_div(positive_attn_mass, topk_attention_mass)
+                if attention is not None
+                else float("nan")
+            )
+            weighted_jaccard = (
+                safe_div(float(np.nansum(att * jac)), topk_attention_mass)
+                if attention is not None
+                else float(np.mean(jac))
+            )
             high_mask = jac >= args.jaccard_high
             moderate_mask = jac >= args.jaccard_moderate
-            high_same_label_rate = safe_div(float(np.logical_and(high_mask, label_match).sum()), float(high_mask.sum()))
-            moderate_same_label_rate = safe_div(float(np.logical_and(moderate_mask, label_match).sum()), float(moderate_mask.sum()))
+            high_same_label_rate = safe_div(
+                float(np.logical_and(high_mask, label_match).sum()), float(high_mask.sum())
+            )
+            moderate_same_label_rate = safe_div(
+                float(np.logical_and(moderate_mask, label_match).sum()), float(moderate_mask.sum())
+            )
             same_label_rate = float(label_match.mean()) if len(label_match) else float("nan")
             pos_rate = float(positive.mean()) if len(positive) else float("nan")
             max_jaccard = float(jac.max()) if len(jac) else float("nan")
-            risk_score = same_label_attn_mass * max_jaccard if attention is not None else same_label_rate * max_jaccard
+            risk_score = (
+                same_label_attn_mass * max_jaccard
+                if attention is not None
+                else same_label_rate * max_jaccard
+            )
             all_same_label_attn_mass = (
-                float(np.nansum(attention[local_i, ytr == query_label])) if attention is not None else float("nan")
+                float(np.nansum(attention[local_i, ytr == query_label]))
+                if attention is not None
+                else float("nan")
             )
             all_positive_attn_mass = (
-                float(np.nansum(attention[local_i, ytr == 1])) if attention is not None else float("nan")
+                float(np.nansum(attention[local_i, ytr == 1]))
+                if attention is not None
+                else float("nan")
             )
 
             query_csv_idx = int(query_original_idx[split_pos])
             qrow = query_df.iloc[query_csv_idx]
             query_rows.append(
                 {
+                    "family": family,
                     "query_split": args.query_split,
                     "query_pos": int(split_pos),
                     "query_idx": query_csv_idx,
@@ -450,6 +592,7 @@ def main() -> int:
                 train_csv_idx = int(train_original_idx[ni])
                 trow = train_df.iloc[train_csv_idx]
                 row = {
+                    "family": family,
                     "query_split": args.query_split,
                     "query_idx": query_csv_idx,
                     "query_label": query_label,
@@ -471,7 +614,9 @@ def main() -> int:
                     "train_seq_b_len": len(str(trow["text"])),
                 }
                 if args.write_shared_features:
-                    row["shared_sae_features"] = top_shared_features(Xq[local_i], Xtr[ni], feature_meta)
+                    row["shared_sae_features"] = top_shared_features(
+                        Xq[local_i], Xtr[ni], feature_meta
+                    )
                 neighbor_rows.append(row)
 
         del Eq, cosine, attention, scores_matrix
@@ -484,6 +629,7 @@ def main() -> int:
             pass
 
     query_fields = [
+        "family",
         "query_split",
         "query_pos",
         "query_idx",
@@ -516,6 +662,7 @@ def main() -> int:
         "query_seq_b_len",
     ]
     neighbor_fields = [
+        "family",
         "query_split",
         "query_idx",
         "query_label",
@@ -544,22 +691,17 @@ def main() -> int:
 
     max_j = np.array([float(r["max_input_jaccard"]) for r in query_rows], dtype=float)
     aw_j = np.array([float(r["attention_weighted_jaccard"]) for r in query_rows], dtype=float)
-    same_share = np.array([float(r["topk_same_label_attention_share"]) for r in query_rows], dtype=float)
+    same_share = np.array(
+        [float(r["topk_same_label_attention_share"]) for r in query_rows], dtype=float
+    )
     same_rate = np.array([float(r["topk_same_label_rate"]) for r in query_rows], dtype=float)
     risk = np.array([float(r["risk_score"]) for r in query_rows], dtype=float)
 
-    high_risk = (
-        (max_j >= args.jaccard_high)
-        & (same_rate >= 0.8)
-        & (risk >= 0.10)
-    )
-    moderate_risk = (
-        (max_j >= args.jaccard_moderate)
-        & (same_rate >= 0.7)
-        & (risk >= 0.03)
-    )
+    high_risk = (max_j >= args.jaccard_high) & (same_rate >= 0.8) & (risk >= 0.10)
+    moderate_risk = (max_j >= args.jaccard_moderate) & (same_rate >= 0.7) & (risk >= 0.03)
     summary = {
-        "dataset": "c3",
+        "dataset": family,
+        "family": family,
         "query_split": args.query_split,
         "rep": args.rep,
         "backbone": args.backbone,
@@ -602,22 +744,23 @@ def main() -> int:
     }
     dump_experiment(
         out_dir / "summary.json",
-        task="tabpfn_c3_attention_feature_label",
-        dataset="c3",
+        task="tabpfn_clevel_attention_feature_label",
+        dataset=family,
         features=f"sae_top{args.top_k}_{args.top_k_mode}",
         split=args.query_split,
         model="tabpfn",
         seed=args.seed,
         payload=summary,
         metrics={"auroc": summary["test_auroc"], "auprc": summary["test_auprc"]},
+        hyperparameters={"family": family, "top_k": args.top_k, "neighbors": args.neighbors},
     )
-    make_report(out_dir, summary, query_rows)
-    draw_svg(out_dir, query_rows, summary)
+    make_report(out_dir, family, summary, query_rows)
+    draw_svg(out_dir, family, query_rows, summary)
 
     print(f"[done] {out_dir / 'query_audit.tsv'}", flush=True)
     print(f"[done] {out_dir / 'neighbor_audit_topk.tsv'}", flush=True)
     print(f"[done] {out_dir / 'AUDIT_SUMMARY.md'}", flush=True)
-    print("TABPFN_C3_ATTENTION_FEATURE_LABEL_AUDIT_DONE", flush=True)
+    print("TABPFN_CLEVEL_ATTENTION_FEATURE_LABEL_AUDIT_DONE", flush=True)
     return 0
 
 

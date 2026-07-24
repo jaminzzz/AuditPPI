@@ -10,15 +10,17 @@ its cache by species via ``PRING_SPECIES_SAE_CACHES`` rather than one family key
 
 Result layout (under :data:`OUT_DIR`)::
 
-    {family}/{model}/cells/{rep}_{backbone}L{layer}[_{pair_mode}]_{eval}.json
-    {family}/{model}/summaries/{backbone}L{layer}[_{pair_mode}].json
+    {family}/{model}/seed_{S}/cells/{rep}_{backbone}L{layer}[_{pair_mode}]_{eval}.json
+    {family}/{model}/seed_{S}/summaries/{backbone}L{layer}[_{pair_mode}].json
+
+Every run writes under ``seed_{S}/`` (including the default seed 42).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from conf.model import REPRESENTATIONS
+from conf.model import DEFAULT_SEED, REPRESENTATIONS
 from conf.paths import (
     PPI_PREDICTION_CACHES as CACHE,
     PRING_SPECIES_SAE_CACHES,
@@ -28,19 +30,22 @@ from conf.paths import (
 MODEL_NAMES = ("xgb", "tabpfn", "mlp_pair", "tabm_pair")
 PAIR_MODELS = frozenset({"mlp_pair", "tabm_pair"})
 
+# Multi-seed matrix for stability reporting. Seed 42 is DEFAULT_SEED and is
+# treated as already completed for the primary xgb matrix; re-runs typically
+# only schedule the remaining seeds.
+FINGERPRINT_SEEDS = (42, 43, 44)
+
 # Benchmark family -> its own native train split. Each family trains on its own
-# train set and is scored on its eval split (user decision). RF2-PPI has no train
-# split, so it borrows C3's (zero-shot eval). PRING is handled specially in the
-# runner: it trains on the human train graph of the SAME sampling method as the
-# eval (default BFS for the zero-shot cross-species graphs), so it is not keyed
-# here -- see ``PRING_DEFAULT_METHOD``.
+# train set and is scored on its eval split (user decision). PRING is handled
+# specially in the runner: it trains on the human train graph of the SAME
+# sampling method as the eval (default BFS for the zero-shot cross-species
+# graphs), so it is not keyed here -- see ``PRING_DEFAULT_METHOD``.
 NATIVE_TRAIN = {
     "c1": "c1:train",
     "c2": "c2:train",
     "c3": "c3:train",
     "cross_species": "cross_species:human_train",
     "bernett": "bernett:train",
-    "rf2ppi": "c3:train",
 }
 
 # PRING human-graph sampling method used for the train side when the eval graph
@@ -59,7 +64,7 @@ def eval_suffix(eval_name: str) -> str:
     """Path-safe eval stem with the family prefix stripped.
 
     ``c3:test`` → ``test``; ``pring:human:test:BFS`` → ``human_test_BFS``;
-    ``cross_species:ecoli`` → ``ecoli``; bare ``rf2ppi`` → ``rf2ppi``.
+    ``cross_species:ecoli`` → ``ecoli``; a bare name maps to itself.
     """
     if ":" not in eval_name:
         return eval_name.replace("/", "_")
@@ -67,12 +72,35 @@ def eval_suffix(eval_name: str) -> str:
     return rest.replace(":", "_") if rest else family
 
 
-def cell_dir(family: str, model: str, *, root: Path = OUT_DIR) -> Path:
-    return root / family / model / "cells"
+def seed_dir(
+    family: str,
+    model: str,
+    seed: int = DEFAULT_SEED,
+    *,
+    root: Path = OUT_DIR,
+) -> Path:
+    """``{root}/{family}/{model}/seed_{S}``."""
+    return root / family / model / f"seed_{int(seed)}"
 
 
-def summary_dir(family: str, model: str, *, root: Path = OUT_DIR) -> Path:
-    return root / family / model / "summaries"
+def cell_dir(
+    family: str,
+    model: str,
+    seed: int = DEFAULT_SEED,
+    *,
+    root: Path = OUT_DIR,
+) -> Path:
+    return seed_dir(family, model, seed, root=root) / "cells"
+
+
+def summary_dir(
+    family: str,
+    model: str,
+    seed: int = DEFAULT_SEED,
+    *,
+    root: Path = OUT_DIR,
+) -> Path:
+    return seed_dir(family, model, seed, root=root) / "summaries"
 
 
 def cell_stem(
@@ -83,9 +111,14 @@ def cell_stem(
     *,
     pair_mode: str = "sym",
 ) -> str:
-    """Filename stem (no ``.json``) for one (model, rep, axis, mode, eval) cell."""
+    """Filename stem (no ``.json``) for one (model, rep, axis, mode, eval) cell.
+
+    Pair models always carry the mode token. Tabular models (xgb/tabpfn) stay
+    bare for the default ``sym`` (so existing products are untouched) but carry
+    the token for the ``product`` / ``absdiff`` feature ablations.
+    """
     suffix = eval_suffix(eval_name)
-    if model in PAIR_MODELS:
+    if model in PAIR_MODELS or pair_mode != "sym":
         return f"{rep}_{b_tag}_{pair_mode}_{suffix}"
     return f"{rep}_{b_tag}_{suffix}"
 
@@ -96,8 +129,13 @@ def summary_stem(
     *,
     pair_mode: str = "sym",
 ) -> str:
-    """Filename stem for one CLI summary (per family×model×axis[×pair_mode])."""
-    if model in PAIR_MODELS:
+    """Filename stem for one CLI summary (per family×model×axis[×pair_mode]).
+
+    Same rule as :func:`cell_stem`: bare for tabular ``sym`` (untouched legacy
+    layout), mode-tagged for pair models and the ``product`` / ``absdiff``
+    tabular ablations.
+    """
+    if model in PAIR_MODELS or pair_mode != "sym":
         return f"{b_tag}_{pair_mode}"
     return b_tag
 
@@ -110,9 +148,10 @@ def cell_path(
     eval_name: str,
     *,
     pair_mode: str = "sym",
+    seed: int = DEFAULT_SEED,
     root: Path = OUT_DIR,
 ) -> Path:
-    return cell_dir(family, model, root=root) / (
+    return cell_dir(family, model, seed, root=root) / (
         f"{cell_stem(model, rep, b_tag, eval_name, pair_mode=pair_mode)}.json"
     )
 
@@ -123,15 +162,17 @@ def summary_path(
     b_tag: str,
     *,
     pair_mode: str = "sym",
+    seed: int = DEFAULT_SEED,
     root: Path = OUT_DIR,
 ) -> Path:
-    return summary_dir(family, model, root=root) / (
+    return summary_dir(family, model, seed, root=root) / (
         f"{summary_stem(model, b_tag, pair_mode=pair_mode)}.json"
     )
 
 
 __all__ = [
     "CACHE",
+    "FINGERPRINT_SEEDS",
     "MODEL_NAMES",
     "NATIVE_TRAIN",
     "OUT_DIR",
@@ -144,6 +185,7 @@ __all__ = [
     "cell_stem",
     "eval_suffix",
     "family_of",
+    "seed_dir",
     "summary_dir",
     "summary_path",
     "summary_stem",

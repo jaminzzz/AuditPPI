@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train a stronger no-bias endpoint-additive SAE model for C3.
+"""Train a stronger no-bias endpoint-additive SAE model for a C-level family.
 
 The model has more capacity than the linear endpoint-additive baseline, but it
 keeps the same diagnostic restriction: it cannot use pair-interaction features.
@@ -15,14 +15,14 @@ endpoint score with gradient*input attribution:
 
 The global feature table aggregates attribution over endpoint occurrences.
 
-Endpoints are assembled on the fly from a per-dataset protein feature cache
-(``auditppi_protein_features_v1``): the C3 RAPPPID splits carry raw endpoint
-sequences (no protein ids), so each endpoint is resolved sequence -> row via the
-cache ``seq2idx`` and the desired ``(backbone, layer, rep)`` channel is selected
-by :func:`~src.features.protein_cache.representation_matrix`. No pair
-embeddings are materialized: shared endpoints are stored once and referenced by
-row index, which is both leaner than the old ``emb_a``/``emb_b`` dumps and
-lets the same cache serve every backbone/layer/rep.
+Runs on any RAPPPID C-level family (``--family c1|c2|c3``). Endpoint rows come
+from that family's lightweight ``auditppi_pair_index_v1`` pair-index cache
+(``rows_a``/``rows_b``/``labels`` already pre-filtered to cached endpoints), which
+indexes the family's ``auditppi_protein_features_v1`` protein cache. The desired
+``(backbone, layer, rep)`` channel is selected by
+:func:`~src.features.protein_cache.representation_matrix`. Shared endpoints are
+stored once and referenced by row index, so one cache serves every
+backbone/layer/rep and no per-pair ``emb_a``/``emb_b`` are materialized.
 """
 
 from __future__ import annotations
@@ -45,12 +45,10 @@ from conf.model import (
     DEFAULT_SEED,
     resolve_backbone_layer,
 )
-from conf.paths import RESULTS_PAIR, C3_SAE_CACHE
-from src.data.pairs import load_c3
-from src.data.sequences import normalize_sequence
+from conf.paths import RESULTS_PAIR, CLEVEL_PAIR_INDEX_CACHES, CLEVEL_SAE_CACHES
 from src.eval.metrics import pair_score_metrics as metrics
 from src.experiments.results import dump_experiment
-from src.features.pairs import load_protein_feature_cache
+from src.features.pairs import load_pair_index_cache, load_protein_feature_cache
 from src.features.protein_cache import representation_matrix
 from src.runtime import seed_all
 from src.interp.annotations import add_sae_annotations
@@ -59,22 +57,20 @@ from src.interp.attribution import (
 )
 from src.models.architectures.mlp_endpoint import MLPEndpoint
 
-OUT_DIR = RESULTS_PAIR / "c3_endpoint_additive_mlp_sae"
-
+FAMILIES = ("c1", "c2", "c3")
 REPS = ("sae_max", "binary")
 
 
 def load_cache(
     rep: str, cache_path: Path, *, backbone: str = DEFAULT_BACKBONE, layer: int | None = None
-) -> tuple[torch.Tensor, dict[str, int]]:
-    """Load the endpoint feature matrix + sequence->row map from a v1 cache.
+) -> torch.Tensor:
+    """Load the endpoint feature matrix from a v1 protein cache.
 
     Reads the ``auditppi_protein_features_v1`` layout, selecting the
     ``(backbone, layer, rep)`` channel via the shared
     :func:`~src.features.protein_cache.representation_matrix`. ``binary`` arrives
     as bool and is cast to uint8 (the MLP's ``float()`` upcast is applied per
-    batch), ``sae_max`` stays float. C3 endpoints carry no protein ids, so the
-    row map returned is the cache ``seq2idx`` (normalized sequence -> row).
+    batch), ``sae_max`` stays float. Rows are indexed by the pair-index cache.
     """
     cache = load_protein_feature_cache(cache_path)
     mat = representation_matrix(cache, rep, layer, backbone)
@@ -84,43 +80,27 @@ def load_cache(
         mat = mat.float()
     else:
         raise ValueError(rep)
-    return mat, cache["seq2idx"]
+    return mat
 
 
-def load_split(split: str, seq_to_idx: dict[str, int]) -> dict:
-    """Resolve a C3 split's pairs to endpoint rows via the cache ``seq2idx``.
+def load_split(family: str, split: str) -> dict:
+    """Load a C-level split's endpoint rows from its pair-index cache.
 
-    C3 pairs come from the RAPPPID HDF5 keyed by STRING protein id, with the
-    endpoint sequence attached. Each endpoint is resolved
-    ``protein_id -> attached sequence -> normalize -> seq2idx row``. Pairs whose
-    endpoint sequence is absent from the cache are skipped and counted.
+    Reads ``rows_a``/``rows_b``/``labels`` straight out of the family's
+    ``auditppi_pair_index_v1`` cache. The cache is already pre-filtered to pairs
+    whose endpoints are present in the protein cache, so there is nothing to skip
+    here; the two endpoint row indices reference the shared protein-feature matrix
+    loaded by :func:`load_cache`.
     """
-    bench = load_c3(split=split, attach_seqs=True)
-    rows_a: list[int] = []
-    rows_b: list[int] = []
-    kept_y: list[int] = []
-    n_skipped = 0
-    for (pid_a, pid_b), label in zip(bench.pairs, bench.labels):
-        seq_a = bench.seqs.get(pid_a)
-        seq_b = bench.seqs.get(pid_b)
-        if seq_a is None or seq_b is None:
-            n_skipped += 1
-            continue
-        ia = seq_to_idx.get(normalize_sequence(seq_a))
-        ib = seq_to_idx.get(normalize_sequence(seq_b))
-        if ia is None or ib is None:
-            n_skipped += 1
-            continue
-        rows_a.append(int(ia))
-        rows_b.append(int(ib))
-        kept_y.append(int(label))
+    index_cache = load_pair_index_cache(CLEVEL_PAIR_INDEX_CACHES[family][split])
+    labels = index_cache["labels"].to(torch.float32)
     return {
-        "rows_a": torch.as_tensor(rows_a, dtype=torch.long),
-        "rows_b": torch.as_tensor(rows_b, dtype=torch.long),
-        "y": torch.as_tensor(kept_y, dtype=torch.float32),
+        "rows_a": index_cache["rows_a"].to(torch.long),
+        "rows_b": index_cache["rows_b"].to(torch.long),
+        "y": labels,
         "split": split,
-        "n_raw": int(bench.labels.size),
-        "n_skipped": int(n_skipped),
+        "n_raw": int(labels.numel()),
+        "n_skipped": 0,
     }
 
 
@@ -165,12 +145,12 @@ def predict(
 def train(args: argparse.Namespace) -> tuple[MLPEndpoint, dict, dict]:
     seed_all(args.seed)
     resolved_layer = resolve_backbone_layer(args.backbone, args.layer)
-    mat, seq_to_idx = load_cache(
+    mat = load_cache(
         args.rep, args.cache_path, backbone=args.backbone, layer=resolved_layer
     )
-    train_split = load_split("train", seq_to_idx)
-    val_split = load_split("val", seq_to_idx)
-    test_split = load_split("test", seq_to_idx)
+    train_split = load_split(args.family, "train")
+    val_split = load_split(args.family, "val")
+    test_split = load_split(args.family, "test")
 
     dim = int(mat.shape[1])
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -265,6 +245,7 @@ def train(args: argparse.Namespace) -> tuple[MLPEndpoint, dict, dict]:
     result = {
         "model": "endpoint_additive_mlp_sae_no_global_bias",
         "formula": "logit(PPI(A,B)) = MLP_no_bias(SAE_A) + MLP_no_bias(SAE_B)",
+        "family": args.family,
         "rep": args.rep,
         "backbone": args.backbone,
         "layer": resolved_layer,
@@ -371,6 +352,9 @@ def write_attribution_tables(model: MLPEndpoint, args: argparse.Namespace, aux: 
 
 def main() -> None:
     p = argparse.ArgumentParser()
+    p.add_argument("--family", choices=FAMILIES, default="c3",
+                   help="C-level leakage family (c1/c2/c3). Routes both the "
+                   "protein feature cache and the pair-index caches.")
     p.add_argument("--rep", choices=REPS, default="sae_max")
     p.add_argument(
         "--backbone",
@@ -388,15 +372,16 @@ def main() -> None:
     p.add_argument(
         "--cache-path",
         type=Path,
-        default=C3_SAE_CACHE,
-        help="C3 protein feature cache (auditppi_protein_features_v1). Endpoints "
-        "are resolved sequence -> row via the cache seq2idx.",
+        default=None,
+        help="Protein feature cache (auditppi_protein_features_v1). Defaults to "
+        "the selected family's cache (CLEVEL_SAE_CACHES[family]).",
     )
     p.add_argument(
         "--out-dir",
         type=Path,
-        default=OUT_DIR,
-        help="Directory for metrics/predictions/attribution outputs.",
+        default=None,
+        help="Directory for metrics/predictions/attribution outputs. Defaults to "
+        "RESULTS_PAIR/{family}_endpoint_additive_mlp_sae.",
     )
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--epochs", type=int, default=80)
@@ -421,18 +406,26 @@ def main() -> None:
     p.add_argument("--attr-device", default=None, help="cuda, cpu, or omitted for auto")
     args = p.parse_args()
 
+    if args.cache_path is None:
+        args.cache_path = CLEVEL_SAE_CACHES[args.family]
+    if args.out_dir is None:
+        args.out_dir = (
+            RESULTS_PAIR
+            / f"{args.family}_endpoint_additive_mlp_sae"
+            / f"seed_{args.seed}"
+        )
     args.out_dir.mkdir(parents=True, exist_ok=True)
     resolved_layer = resolve_backbone_layer(args.backbone, args.layer)
     bb_tag = f"{args.backbone}L{resolved_layer}"
     model, result, aux = train(args)
-    stem = f"c3_endpoint_additive_mlp_{args.rep}_{bb_tag}_h{args.hidden}_l{args.layers}_nobias"
+    stem = f"{args.family}_endpoint_additive_mlp_{args.rep}_{bb_tag}_h{args.hidden}_l{args.layers}_nobias"
 
     result_path = args.out_dir / f"{stem}_metrics.json"
     history_path = args.out_dir / f"{stem}_history.tsv"
     dump_experiment(
         result_path,
         task="pair.endpoint_additive_mlp",
-        dataset="c3",
+        dataset=args.family,
         features=args.rep,
         split="test",
         model="endpoint_additive_mlp",

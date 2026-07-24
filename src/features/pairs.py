@@ -79,17 +79,30 @@ def pair_features(a: torch.Tensor, b: torch.Tensor, mode: str) -> torch.Tensor:
     raise ValueError(f"mode must be one of {PAIR_MODES}")
 
 
+def pair_features_np(
+    A, B, mode: str = "sym", cols: Optional[np.ndarray] = None
+) -> np.ndarray:
+    """Any :func:`pair_features` ``mode`` as float32 numpy (n × mode_dim·rep_dim).
+
+    Numpy adapter over the canonical torch :func:`pair_features` so every pair
+    definition stays in exactly one place. A/B arrive as float32 torch tensors, so
+    this is bit-for-bit the torch construction cast to float32; the optional column
+    select is the fingerprint-baseline specific bit (TabPFN's feature cap needs a
+    fixed column subset). Used by the tabular consumers (xgb/tabpfn), including the
+    ``product`` / ``absdiff`` feature ablations of ``sym``.
+    """
+    x = pair_features(A, B, mode).numpy().astype(np.float32, copy=False)
+    return x[:, cols] if cols is not None else x
+
+
 def sym_features(A, B, cols: Optional[np.ndarray] = None) -> np.ndarray:
     """``sym = [A⊙B, |A−B|]`` as float32 numpy (n × 2·rep_dim); optional column subset.
 
-    Numpy adapter over the canonical torch :func:`pair_features` (``mode="sym"``)
-    so the ``[A*B, abs(A-B)]`` definition stays in exactly one place. A/B arrive as
-    float32 torch tensors, so this is bit-for-bit ``concatenate([(A*B), (A-B).abs()])``;
-    the numpy cast + column select is the fingerprint-baseline specific bit (TabPFN's
-    feature cap needs a fixed column subset).
+    Thin wrapper over :func:`pair_features_np` pinned to ``mode="sym"`` so the
+    ``[A*B, abs(A-B)]`` definition stays in exactly one place; this is bit-for-bit
+    ``concatenate([(A*B), (A-B).abs()])``.
     """
-    x = pair_features(A, B, "sym").numpy().astype(np.float32, copy=False)
-    return x[:, cols] if cols is not None else x
+    return pair_features_np(A, B, "sym", cols)
 
 
 def concat_training_examples(

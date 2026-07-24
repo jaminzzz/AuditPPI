@@ -13,7 +13,6 @@ Training protocol (user decision — per-benchmark native train):
   cross_species:*← train on cross_species:human_train  (**once** per rep/axis)
   bernett:*      ← train on bernett:train
   pring:*        ← train on pring:human:train:<method> (zero-shot cross-species)
-  rf2ppi         ← train on c3:train (RF2-PPI has no train split), zero-shot eval
 
 When several evals share the same native train (e.g. all ``cross_species:*``, or
 PRING's BFS human test + yeast/ecoli/arath), :func:`run_baseline_evals` fits
@@ -31,7 +30,8 @@ vocabulary (``sym`` / ``concat`` / ``rich`` / ablations); only ``concat`` uses
 AB/BA train/eval.
 
 Results land under
-``OUT_DIR/{family}/{model}/cells|summaries/`` (see :mod:`src.ppi_fingerprint.config`).
+``OUT_DIR/{family}/{model}/seed_{S}/cells|summaries/``
+(see :mod:`src.ppi_fingerprint.config`).
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ from conf.model import DEFAULT_BACKBONE, DEFAULT_SEED, REPRESENTATIONS, resolve_
 from src.eval import evaluate_scorer
 from src.data import pairs as D
 from src.features.feature_selection import xgb_topk_columns
-from src.features.pairs import PAIR_MODES, load_protein_feature_cache, sym_features
+from src.features.pairs import PAIR_MODES, load_protein_feature_cache, pair_features_np
 from src.features.protein_cache import pair_feature_rows
 from src.features.sampling import stratified_subsample
 from src.models.architectures.mlp_pair import train_mlp_pair
@@ -117,16 +117,13 @@ def _val_name_for(eval_name: str) -> Optional[str]:
     Every family ships a held-out val split except ``cross_species`` (only a
     human train graph + per-species test graphs on disk) -- for that family the
     caller carves a stratified val from train in memory. PRING validates on the
-    human val graph of the matching sampling method; ``rf2ppi`` (no train split
-    of its own, trains on ``c3:train``) validates on ``c3:val``.
+    human val graph of the matching sampling method.
     """
     family = _family(eval_name)
     if family in {"c1", "c2", "c3"}:
         return f"{family}:val"
     if family == "bernett":
         return "bernett:val"
-    if family == "rf2ppi":
-        return "c3:val"
     if family == "pring":
         parts = eval_name.split(":")
         method = parts[3] if len(parts) > 3 and parts[3] else PRING_DEFAULT_METHOD
@@ -203,21 +200,22 @@ def _fit_scorer(
     """Fit once; return ``predict(Ae, Be) -> scores`` and optional TabPFN cols."""
     cols = None
     if model == "xgb":
-        Xtr, Xva = sym_features(Atr_, Btr_), sym_features(Ava_, Bva_)
+        Xtr = pair_features_np(Atr_, Btr_, pair_mode)
+        Xva = pair_features_np(Ava_, Bva_, pair_mode)
         clf = fit_xgb(Xtr, ytr_, Xva, yva_, seed=seed)
 
-        def predict(Ae, Be, _clf=clf):
-            return predict_proba_chunked(_clf, sym_features(Ae, Be))
+        def predict(Ae, Be, _clf=clf, _mode=pair_mode):
+            return predict_proba_chunked(_clf, pair_features_np(Ae, Be, _mode))
 
         return predict, cols
 
     if model == "tabpfn":
-        Xtr_full = sym_features(Atr_, Btr_)
+        Xtr_full = pair_features_np(Atr_, Btr_, pair_mode)
         cols = xgb_topk_columns(Xtr_full, ytr_, top_k, seed=seed)
         clf = fit_tabpfn(Xtr_full[:, cols], ytr_, seed=seed)
 
-        def predict(Ae, Be, _clf=clf, _cols=cols):
-            return predict_proba_chunked(_clf, sym_features(Ae, Be, _cols))
+        def predict(Ae, Be, _clf=clf, _cols=cols, _mode=pair_mode):
+            return predict_proba_chunked(_clf, pair_features_np(Ae, Be, _mode, _cols))
 
         return predict, cols
 
@@ -257,6 +255,7 @@ def _score_eval(
     top_k: int,
     n_train: int,
     cols: Optional[np.ndarray],
+    seed: int,
     write: bool,
     out_dir: Path,
 ) -> Dict[str, Any]:
@@ -274,14 +273,15 @@ def _score_eval(
         "train": train_name,
         "backbone": backbone,
         "layer": resolved_layer,
-        "pair_mode": pair_mode if model in PAIR_MODELS else "sym",
+        "pair_mode": pair_mode,
+        "seed": int(seed),
         "top_k": top_k if model == "tabpfn" else None,
         "n_train": int(n_train),
         "n_skipped_eval": int(n_skipped),
     })
-    pm_tag = f"·{pair_mode}" if model in PAIR_MODELS else ""
+    pm_tag = f"·{pair_mode}"
     print(
-        f"[{model}·{rep}·{backbone}L{resolved_layer}{pm_tag}·{eval_name}] "
+        f"[{model}·{rep}·{backbone}L{resolved_layer}{pm_tag}·seed{seed}·{eval_name}] "
         f"AUROC={res['auroc']} AUPRC={res['auprc']} "
         f"(n_train={res['n_train']}, skip={n_skipped})",
         flush=True,
@@ -292,7 +292,8 @@ def _score_eval(
         b_tag = f"{backbone}L{resolved_layer}"
         path = cell_path(
             family, model, rep, b_tag, eval_name,
-            pair_mode=pair_mode if model in PAIR_MODELS else "sym",
+            pair_mode=pair_mode,
+            seed=seed,
             root=out_dir,
         )
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -321,6 +322,8 @@ def run_baseline_evals(
     is fit a single time (same train/val protocol) and only feature assembly +
     inference re-run per eval -- so ``cross_species`` and PRING zero-shot
     species no longer retrain N times on the same human graph.
+
+    Results always land under ``seed_{seed}/`` (including the default 42).
     """
     if model not in MODEL_NAMES:
         raise ValueError(f"unknown model {model!r}; choose from {MODEL_NAMES}")
@@ -346,7 +349,7 @@ def run_baseline_evals(
         )
         if len(group_evals) > 1:
             print(
-                f"[fit] {model}/{rep} train={train_name} "
+                f"[fit] {model}/{rep}/seed{seed} train={train_name} "
                 f"→ {len(group_evals)} evals (train-once)",
                 flush=True,
             )
@@ -361,7 +364,7 @@ def run_baseline_evals(
                     model=model, backbone=backbone, layer=layer,
                     train_name=train_name, pair_mode=pair_mode,
                     top_k=top_k, n_train=n_train, cols=cols,
-                    write=write, out_dir=out_dir,
+                    seed=seed, write=write, out_dir=out_dir,
                 )
             )
     return results

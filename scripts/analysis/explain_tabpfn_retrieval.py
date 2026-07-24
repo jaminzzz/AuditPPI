@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Explain TabPFN PPI predictions using retrieval and SAE-feature overlap."""
+"""Explain TabPFN PPI predictions using retrieval and SAE-feature overlap.
+
+Works for any RAPPPID leakage level (``--family c1|c2|c3``). Each family uses
+its own pair-index caches, protein cache, and per-family binary/sym ranking
+produced by ``run_clevel_tabpfn_topk.py``. Products land under a per-family
+subdir so the three levels never overwrite each other::
+
+    results/audit_pair/tabpfn/{family}/tabpfn_retrieval_explanations/
+
+    PY=/data/wmzhu/anaconda3/envs/E1/bin/python
+    $PY scripts/analysis/explain_tabpfn_retrieval.py --family c3
+    $PY scripts/analysis/explain_tabpfn_retrieval.py --family c1
+    $PY scripts/analysis/explain_tabpfn_retrieval.py --family c2
+"""
 
 from __future__ import annotations
 
@@ -12,15 +25,16 @@ from pathlib import Path
 import numpy as np
 
 from conf.model import DEFAULT_BACKBONE, DEFAULT_SEED, resolve_backbone_layer
-from src.experiments.results import dump_experiment
 from conf.paths import (
-    C3_PAIR_INDEX_CACHES,
-    C3_SAE_CACHE,
+    CLEVEL_PAIR_INDEX_CACHES,
+    CLEVEL_SAE_CACHES,
+    RAPPPID_C1_DIR,
+    RAPPPID_C2_DIR,
     RAPPPID_C3_DIR,
-    TABPFN_RANKING,
-    TABPFN_RETRIEVAL,
+    clevel_tabpfn_ranking,
+    clevel_tabpfn_retrieval_dir,
 )
-from src.runtime import setup_device
+from src.experiments.results import dump_experiment
 from src.features.pairs import load_protein_feature_cache
 from src.interp.pair_probe import (
     build_dense_sym_topk,
@@ -41,17 +55,53 @@ from src.interp.tabpfn_retrieval import (
     short_sequence,
     top_shared_features,
 )
+from src.runtime import setup_device
+
+FAMILIES = ("c1", "c2", "c3")
+FAMILY_DIRS = {
+    "c1": RAPPPID_C1_DIR,
+    "c2": RAPPPID_C2_DIR,
+    "c3": RAPPPID_C3_DIR,
+}
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ranking-csv", type=Path, default=TABPFN_RANKING)
-    parser.add_argument("--out-dir", type=Path, default=TABPFN_RETRIEVAL)
-    parser.add_argument("--c3-dir", type=Path, default=RAPPPID_C3_DIR)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--family",
+        choices=FAMILIES,
+        default="c3",
+        help="RAPPPID leakage level. Ranking, caches, CSVs, and out-dir are "
+        "all resolved from this (default: c3).",
+    )
+    parser.add_argument(
+        "--ranking-csv",
+        type=Path,
+        default=None,
+        help="override ranking CSV; default is the family's own tabpfn_topk ranking.",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="override product dir; default is tabpfn/{family}/tabpfn_retrieval_explanations.",
+    )
+    parser.add_argument(
+        "--clevel-dir",
+        type=Path,
+        default=None,
+        help="override RAPPPID CSV dir; default is data/raw/rapppid_{family}.",
+    )
     parser.add_argument("--rep", choices=["binary", "sae_max"], default="binary")
     parser.add_argument("--backbone", default=DEFAULT_BACKBONE)
-    parser.add_argument("--layer", type=int, default=None,
-                        help="SAE layer; defaults to the backbone's default layer.")
+    parser.add_argument(
+        "--layer",
+        type=int,
+        default=None,
+        help="SAE layer; defaults to the backbone's default layer.",
+    )
     parser.add_argument("--device-id", type=int, default=3)
     parser.add_argument("--top-k", type=int, default=200)
     parser.add_argument("--top-k-mode", choices=["sae-id", "flat"], default="sae-id")
@@ -73,28 +123,55 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     setup_device(args.device_id)
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    family = args.family
+    ranking_csv = args.ranking_csv or clevel_tabpfn_ranking(family)
+    out_dir = args.out_dir or clevel_tabpfn_retrieval_dir(family)
+    clevel_dir = args.clevel_dir or FAMILY_DIRS[family]
+    pair_index_caches = CLEVEL_PAIR_INDEX_CACHES[family]
+    protein_cache_path = CLEVEL_SAE_CACHES[family]
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     layer = resolve_backbone_layer(args.backbone, args.layer)
     sae_dim = sae_dim_for_backbone(args.backbone)
-    ranking = read_feature_ranking(args.ranking_csv)
+    ranking = read_feature_ranking(ranking_csv)
     flat_features, feature_metadata = select_top_features(
         ranking, args.top_k, args.top_k_mode, sae_dim=sae_dim
     )
-    (args.out_dir / f"selected_features_{args.top_k_mode}_k{args.top_k}.json").write_text(
+    (out_dir / f"selected_features_{args.top_k_mode}_k{args.top_k}.json").write_text(
         json.dumps(feature_metadata, indent=2)
     )
 
-    print(f"[load] train/query via pair-index caches ({args.rep} {args.backbone}L{layer})", flush=True)
-    protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
+    # Cap train rows to TabPFN's context budget so Xtr/ytr/embeddings/attention
+    # stay row-aligned (see audit_tabpfn_clevel_attention_feature_label.py).
+    train_max_rows = args.train_subsample
+    if train_max_rows is None and args.tabpfn_subsample_samples > 0:
+        train_max_rows = args.tabpfn_subsample_samples
+
+    print(
+        f"[load] {family} train/query via pair-index caches "
+        f"({args.rep} {args.backbone}L{layer}; train_max_rows={train_max_rows})",
+        flush=True,
+    )
+    protein_cache = load_protein_feature_cache(protein_cache_path)
     train_a, train_b, train_y, train_original_indices = materialize_pair_split(
-        C3_PAIR_INDEX_CACHES["train"], protein_cache, rep=args.rep,
-        backbone=args.backbone, layer=layer, max_rows=args.train_subsample,
-        seed=args.seed, return_indices=True,
+        pair_index_caches["train"],
+        protein_cache,
+        rep=args.rep,
+        backbone=args.backbone,
+        layer=layer,
+        max_rows=train_max_rows,
+        seed=args.seed,
+        return_indices=True,
     )
     query_a, query_b, query_y, query_original_indices = materialize_pair_split(
-        C3_PAIR_INDEX_CACHES[args.query_split], protein_cache, rep=args.rep,
-        backbone=args.backbone, layer=layer, max_rows=None,
-        seed=args.seed + 1, return_indices=True,
+        pair_index_caches[args.query_split],
+        protein_cache,
+        rep=args.rep,
+        backbone=args.backbone,
+        layer=layer,
+        max_rows=None,
+        seed=args.seed + 1,
+        return_indices=True,
     )
     train_x = build_dense_sym_topk(train_a, train_b, flat_features, sae_dim=sae_dim)
     query_x_all = build_dense_sym_topk(query_a, query_b, flat_features, sae_dim=sae_dim)
@@ -135,8 +212,8 @@ def main() -> None:
     else:
         retrieval_scores, score_name = attention, "decoder_attention"
 
-    train_frame = read_split_csv(args.c3_dir, "train")
-    query_frame = read_split_csv(args.c3_dir, args.query_split)
+    train_frame = read_split_csv(clevel_dir, "train", family=family)
+    query_frame = read_split_csv(clevel_dir, args.query_split, family=family)
     detail_rows = []
     summary_rows = []
     for query_rank, split_position in enumerate(query_positions, 1):
@@ -161,6 +238,7 @@ def main() -> None:
         query_row = query_frame.iloc[query_csv_index]
         summary_rows.append(
             {
+                "family": family,
                 "query_rank": query_rank,
                 "query_split": args.query_split,
                 "query_idx": query_csv_index,
@@ -193,6 +271,7 @@ def main() -> None:
             train_row = train_frame.iloc[train_csv_index]
             detail_rows.append(
                 {
+                    "family": family,
                     "query_rank": query_rank,
                     "query_split": args.query_split,
                     "query_idx": query_csv_index,
@@ -218,8 +297,8 @@ def main() -> None:
                 }
             )
 
-    summary_path = args.out_dir / "query_summary.csv"
-    detail_path = args.out_dir / "neighbor_details.csv"
+    summary_path = out_dir / "query_summary.csv"
+    detail_path = out_dir / "neighbor_details.csv"
     with summary_path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(summary_rows[0]))
         writer.writeheader()
@@ -230,13 +309,14 @@ def main() -> None:
         writer.writerows(detail_rows)
 
     config = {
-        "dataset": "c3",
-        "protein_cache": str(C3_SAE_CACHE),
+        "dataset": family,
+        "family": family,
+        "protein_cache": str(protein_cache_path),
         "rep": args.rep,
         "backbone": args.backbone,
         "layer": layer,
         "sae_dim": sae_dim,
-        "ranking_csv": str(args.ranking_csv),
+        "ranking_csv": str(ranking_csv),
         "top_k_mode": args.top_k_mode,
         "top_k": args.top_k,
         "input_dim": len(flat_features),
@@ -249,9 +329,9 @@ def main() -> None:
         "decoder_attention_available": attention is not None,
     }
     dump_experiment(
-        args.out_dir / "config.json",
+        out_dir / "config.json",
         task="interpretability.tabpfn_retrieval",
-        dataset="c3",
+        dataset=family,
         features=f"binary_sym_{args.top_k_mode}_k{args.top_k}",
         split=args.query_split,
         model="tabpfn",
@@ -263,6 +343,7 @@ def main() -> None:
             "train_n": config["train_n"],
         },
         hyperparameters={
+            "family": family,
             "top_k_mode": args.top_k_mode,
             "top_k": args.top_k,
             "neighbor_k": args.neighbors,
@@ -270,9 +351,9 @@ def main() -> None:
         },
     )
     report = [
-        "# TabPFN Retrieval Explanations",
+        f"# TabPFN Retrieval Explanations ({family.upper()})",
         "",
-        f"Dataset: C3 `{args.query_split}`. Top-K SAE ids: {args.top_k}; "
+        f"Dataset: {family.upper()} `{args.query_split}`. Top-K SAE ids: {args.top_k}; "
         f"input dim: {len(flat_features)}.",
         f"Train context: {len(train_y)} pairs. Explained queries: {len(query_positions)}.",
         f"Primary retrieval score: `{score_name}`.",
@@ -300,7 +381,7 @@ def main() -> None:
             "embeddings, not a causal explanation.",
         ]
     )
-    (args.out_dir / "RETRIEVAL_EXPLANATIONS.md").write_text("\n".join(report))
+    (out_dir / "RETRIEVAL_EXPLANATIONS.md").write_text("\n".join(report))
     print(f"[summary] {summary_path}", flush=True)
     print(f"[details] {detail_path}", flush=True)
     print("TABPFN_RETRIEVAL_EXPLANATIONS_DONE", flush=True)

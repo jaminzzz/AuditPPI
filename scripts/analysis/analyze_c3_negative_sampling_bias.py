@@ -28,8 +28,8 @@ Inputs (all row-aligned, verified by export_c3_pair_id_alignment.py):
   - c3_{split}_pair_ids.parquet            (row -> id_a, id_b, label)
 
 Run in E1:
-  python scripts/audit_pair/analyze_c3_negative_sampling_bias.py --split test
-  python scripts/audit_pair/analyze_c3_negative_sampling_bias.py --split train
+  python scripts/analysis/analyze_c3_negative_sampling_bias.py --split test
+  python scripts/analysis/analyze_c3_negative_sampling_bias.py --split train
 """
 
 from __future__ import annotations

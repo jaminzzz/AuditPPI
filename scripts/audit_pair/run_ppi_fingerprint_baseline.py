@@ -20,17 +20,16 @@ Evals that share the same native train are fit **once** and scored many times
 (e.g. ``cross_species``: one ``human_train`` fit → human_test + all species;
 PRING BFS train → human BFS test + yeast/ecoli/arath).
 
-Results::
+Results (always under ``seed_{S}/``, including the default seed 42)::
 
-    results/main/ppi_fingerprint/{family}/{model}/cells/...
-    results/main/ppi_fingerprint/{family}/{model}/summaries/{backbone}L{layer}[_{pair_mode}].json
+    results/main/ppi_fingerprint/{family}/{model}/seed_{S}/cells/...
+    results/main/ppi_fingerprint/{family}/{model}/seed_{S}/summaries/{backbone}L{layer}[_{pair_mode}].json
 
     PY=/data/wmzhu/anaconda3/envs/E1/bin/python
     $PY scripts/audit_pair/run_ppi_fingerprint_baseline.py --model xgb --family c3
+    $PY scripts/audit_pair/run_ppi_fingerprint_baseline.py --model xgb --family c3 --seed 43
     $PY scripts/audit_pair/run_ppi_fingerprint_baseline.py --model mlp_pair --family c3 \\
         --pair-mode sym
-    $PY scripts/audit_pair/run_ppi_fingerprint_baseline.py --model tabm_pair --family c3 \\
-        --pair-mode concat --backbone esm2 --layer 33
 """
 
 from __future__ import annotations
@@ -53,7 +52,6 @@ from src.experiments.results import dump_experiment
 from src.features.pairs import PAIR_MODES
 from src.ppi_fingerprint.config import (
     MODEL_NAMES as MODELS,
-    PAIR_MODELS,
     PRING_DEFAULT_METHOD,
     REPRESENTATIONS as REPS,
     summary_path,
@@ -76,12 +74,10 @@ def family_evals(family: str) -> list[str]:
         evals = [f"pring:human:test:{m}" for m in PRING_METHODS]
         evals += [f"pring:{sp}:test" for sp in PRING_CROSS_SPECIES]
         return evals
-    if family == "rf2ppi":
-        return ["rf2ppi"]
     raise ValueError(f"unknown family {family!r}")
 
 
-FAMILIES = ("c1", "c2", "c3", "cross_species", "bernett", "pring", "rf2ppi")
+FAMILIES = ("c1", "c2", "c3", "cross_species", "bernett", "pring")
 
 
 def main() -> None:
@@ -95,12 +91,14 @@ def main() -> None:
     p.add_argument("--reps", nargs="*", choices=REPS, default=list(REPS),
                    help="pooling views to sweep (default: all)")
     p.add_argument("--pair-mode", choices=PAIR_MODES, default="sym",
-                   help="pair assemble for mlp_pair/tabm_pair (ignored by xgb/tabpfn; "
-                        "only concat uses AB/BA)")
+                   help="pair assembly for every model (shared vocabulary); only "
+                        "concat uses AB/BA. xgb/tabpfn default to sym; product / "
+                        "absdiff run the two sym feature-block ablations")
     p.add_argument("--top-k", type=int, default=500, help="TabPFN feature cap")
     p.add_argument("--train-subsample", type=int, default=100000)
     p.add_argument("--device-id", type=int, default=None)
-    p.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    p.add_argument("--seed", type=int, default=DEFAULT_SEED,
+                   help="RNG seed; results always land under seed_{S}/")
     args = p.parse_args()
 
     layer = resolve_backbone_layer(args.backbone, args.layer)
@@ -116,10 +114,14 @@ def main() -> None:
 
     evals = family_evals(args.family)
     b_tag = f"{args.backbone}L{layer}"
-    effective_mode = args.pair_mode if args.model in PAIR_MODELS else "sym"
+    # Every model now consumes pair_mode: pair nets fold the endpoints inside the
+    # net, tabular models (xgb/tabpfn) build the pair block up front. xgb/tabpfn
+    # default to ``sym`` (legacy layout untouched) and gain ``product``/``absdiff``
+    # for the sym feature ablations.
+    effective_mode = args.pair_mode
     print(
         f"[plan] family={args.family} model={args.model} backbone={b_tag} "
-        f"reps={args.reps} pair_mode={effective_mode} evals={evals}",
+        f"seed={args.seed} reps={args.reps} pair_mode={effective_mode} evals={evals}",
         flush=True,
     )
 
@@ -134,26 +136,32 @@ def main() -> None:
                 seed=args.seed,
             )
             for r in rows:
-                key = f"{args.model}/{rep}/{b_tag}/{effective_mode}/{r['eval']}"
+                key = f"{args.model}/{rep}/{b_tag}/{effective_mode}/seed{args.seed}/{r['eval']}"
                 summary[key] = {
                     "auroc": r["auroc"],
                     "auprc": r["auprc"],
                     "n_skip": r["n_skipped_eval"],
                     "train": r["train"],
                     "pair_mode": r.get("pair_mode"),
+                    "seed": r.get("seed", args.seed),
                 }
         except Exception as exc:  # noqa: BLE001  keep the sweep going
             for ev in evals:
-                key = f"{args.model}/{rep}/{b_tag}/{effective_mode}/{ev}"
+                key = f"{args.model}/{rep}/{b_tag}/{effective_mode}/seed{args.seed}/{ev}"
                 print(f"[skip] {key}: {exc}", flush=True)
                 summary[key] = {"error": str(exc)}
 
-    print(f"\n=== ppi_fingerprint {args.family}/{args.model}/{b_tag}: AUROC / AUPRC ===", flush=True)
+    print(
+        f"\n=== ppi_fingerprint {args.family}/{args.model}/{b_tag}/seed{args.seed}: "
+        f"AUROC / AUPRC ===",
+        flush=True,
+    )
     for key, value in summary.items():
         print(f"  {key:52s} {value}", flush=True)
 
     out_path = summary_path(
-        args.family, args.model, b_tag, pair_mode=effective_mode,
+        args.family, args.model, b_tag,
+        pair_mode=effective_mode, seed=args.seed,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     dump_experiment(
@@ -170,6 +178,7 @@ def main() -> None:
             "backbone": args.backbone, "layer": layer,
             "top_k": args.top_k, "train_subsample": args.train_subsample,
             "reps": list(args.reps), "pair_mode": effective_mode,
+            "seed": args.seed,
         },
     )
     print(f"\n[done] {out_path}", flush=True)

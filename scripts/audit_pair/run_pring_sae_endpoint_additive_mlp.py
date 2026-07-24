@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train no-bias endpoint-additive MLP baselines on PRING Human pair labels.
+"""Train no-bias endpoint-additive MLP baselines on PRING pair labels.
 
 The model is restricted to endpoint terms:
 
@@ -8,6 +8,17 @@ The model is restricted to endpoint terms:
 
 No pair interaction features are used: no SAE_A * SAE_B, no |SAE_A - SAE_B|,
 and no protein-ID parameters. There is also no global bias term.
+
+Training is fixed to PRING human (per graph-sampling method: BFS/DFS/
+RANDOM_WALK, each with native train/val/test splits). After the human model is
+fit, it scores TWO eval groups, kept separate:
+
+  * ``human_test`` -- in-distribution held-out human graph (same species as
+    train), reported on its own so it is not blended into the zero-shot number.
+  * the held-out PRING species (yeast/ecoli/arath) -- zero-shot transfer, each
+    scored on its own ``{sp}_test_ppi.txt`` plus a macro mean. Endpoints are
+    read from each species' own v1 protein cache (id2idx keyed); the human MLP
+    is applied unchanged since every cache shares the same SAE feature space.
 """
 
 from __future__ import annotations
@@ -30,7 +41,13 @@ from conf.model import (
     DEFAULT_SEED,
     resolve_backbone_layer,
 )
-from conf.paths import RESULTS_PAIR, PRING_ROOT, PRING_HUMAN_SAE_CACHE
+from conf.paths import (
+    RESULTS_PAIR,
+    PRING_ROOT,
+    PRING_HUMAN_SAE_CACHE,
+    PRING_CROSS_SPECIES,
+    PRING_SPECIES_SAE_CACHES,
+)
 from src.data.pring_graph import METHODS
 from src.eval.metrics import pair_score_metrics as metrics
 from src.experiments.results import dump_experiment
@@ -43,6 +60,9 @@ HUMAN_CACHE = PRING_HUMAN_SAE_CACHE
 OUT_DIR = RESULTS_PAIR / "pring_endpoint_additive_mlp_sae"
 
 REPS = ("sae_max", "binary")
+
+# Held-out PRING species scored zero-shot (test-only graphs, no train/val).
+ZERO_SHOT_SPECIES = list(PRING_CROSS_SPECIES)
 
 
 def read_pair_file(path: Path) -> tuple[list[str], list[str], np.ndarray]:
@@ -82,8 +102,14 @@ def load_cache(
     return mat, cache["id2idx"]
 
 
-def load_split(method: str, split: str, id_to_idx: dict[str, int]) -> dict:
-    path = PRING_ROOT / "human" / method / f"human_{split}_ppi.txt"
+def load_pairs(path: Path, id_to_idx: dict[str, int]) -> dict:
+    """Resolve a PRING edge list to endpoint rows via a cache ``id2idx``.
+
+    Works for both the human ``human_{split}_ppi.txt`` files and the held-out
+    species ``{sp}_test_ppi.txt`` files: each line is ``id_a id_b label`` and
+    every id is looked up in the caller-supplied ``id2idx``. Pairs whose
+    endpoint id is absent from that cache are skipped and counted.
+    """
     a_ids, b_ids, y = read_pair_file(path)
     rows_a: list[int] = []
     rows_b: list[int] = []
@@ -154,11 +180,17 @@ def write_pair_predictions(path: Path, split: dict, pred_pack: tuple[np.ndarray,
     ).to_csv(path, sep="\t", index=False)
 
 
-def train_one(args: argparse.Namespace, method: str, mat: torch.Tensor, id_to_idx: dict[str, int]) -> tuple[dict, dict]:
+def human_split_path(method: str, split: str) -> Path:
+    return PRING_ROOT / "human" / method / f"human_{split}_ppi.txt"
+
+
+def train_one(
+    args: argparse.Namespace, method: str, mat: torch.Tensor, id_to_idx: dict[str, int]
+) -> tuple[MLPEndpoint, torch.Tensor, torch.device, dict, dict]:
     seed_all(args.seed)
-    train_split = load_split(method, "train", id_to_idx)
-    val_split = load_split(method, "val", id_to_idx)
-    test_split = load_split(method, "test", id_to_idx)
+    train_split = load_pairs(human_split_path(method, "train"), id_to_idx)
+    val_split = load_pairs(human_split_path(method, "val"), id_to_idx)
+    test_split = load_pairs(human_split_path(method, "test"), id_to_idx)
 
     dim = int(mat.shape[1])
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -302,7 +334,39 @@ def train_one(args: argparse.Namespace, method: str, mat: torch.Tensor, id_to_id
         "splits": {"train": train_split, "val": val_split, "test": test_split},
         "predictions": {"train": train_pack, "val": val_pack, "test": test_pack},
     }
-    return result, aux
+    return model, mat_device, device, result, aux
+
+
+def evaluate_species(
+    args: argparse.Namespace,
+    model: MLPEndpoint,
+    device: torch.device,
+    species: str,
+) -> tuple[dict, dict, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Zero-shot score the human MLP on a held-out species' ``{sp}_test_ppi.txt``.
+
+    Endpoints are read from the species' own v1 protein cache (id2idx keyed).
+    The human-trained MLP is applied unchanged: every PRING cache shares the same
+    SAE feature space, so a single ``alpha(p)`` transfers across species.
+    """
+    layer = resolve_backbone_layer(args.backbone, args.layer)
+    mat, id_to_idx = load_cache(
+        args.rep, PRING_SPECIES_SAE_CACHES[species], backbone=args.backbone, layer=layer
+    )
+    mat = mat.to(device) if args.cache_on_device and device.type == "cuda" else mat
+    test_path = PRING_ROOT / species / f"{species}_test_ppi.txt"
+    split = load_pairs(test_path, id_to_idx)
+    pack = predict(model, mat, split, device, args.eval_batch_size)
+    m = metrics(split["y"].numpy().astype(np.int8), pack[0])
+    info = {
+        "species": species,
+        "test_path": str(test_path),
+        "cache": str(PRING_SPECIES_SAE_CACHES[species]),
+        "n_raw": int(split["n_raw"]),
+        "n_skipped": int(split["n_skipped"]),
+        "metrics": m,
+    }
+    return m, info, split, pack
 
 
 def main() -> None:
@@ -352,6 +416,13 @@ def main() -> None:
     p.add_argument("--device", default=None, help="cuda, cpu, or omitted for auto")
     p.add_argument("--cache-on-device", action="store_true")
     p.add_argument("--write-predictions", action="store_true")
+    p.add_argument(
+        "--zero-shot-species",
+        nargs="+",
+        default=list(PRING_CROSS_SPECIES),
+        help="Held-out PRING species scored zero-shot with the human model "
+        "(default: yeast/ecoli/arath). Pass an empty list to skip.",
+    )
     args = p.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -361,10 +432,40 @@ def main() -> None:
     )
     bb_tag = f"{args.backbone}L{resolved_layer}"
     methods = METHODS if args.method == "all" else (args.method,)
+    zero_shot_species = list(args.zero_shot_species)
     all_results = {}
     rows = []
     for method in methods:
-        result, aux = train_one(args, method, mat, id_to_idx)
+        model, mat_device, device, result, aux = train_one(args, method, mat, id_to_idx)
+
+        # --- zero-shot: score the human model on each held-out species -------
+        species_results = {}
+        if zero_shot_species:
+            for species in zero_shot_species:
+                m, info, split, pack = evaluate_species(args, model, device, species)
+                species_results[species] = info
+                print(
+                    f"[{method} zero-shot {species}] "
+                    f"AUROC={m['auroc']:.4f} AUPRC={m['auprc']:.4f} "
+                    f"(n={info['n_raw']} skipped={info['n_skipped']})",
+                    flush=True,
+                )
+                if args.write_predictions:
+                    write_pair_predictions(
+                        args.out_dir
+                        / f"pring_{method.lower()}_zeroshot_{species}_pair_predictions.tsv",
+                        split,
+                        pack,
+                    )
+            if species_results:
+                result["mean_species_auroc"] = float(
+                    np.mean([r["metrics"]["auroc"] for r in species_results.values()])
+                )
+                result["mean_species_auprc"] = float(
+                    np.mean([r["metrics"]["auprc"] for r in species_results.values()])
+                )
+        result["zero_shot_species"] = species_results
+
         all_results[method] = result
         stem = f"pring_{method.lower()}_endpoint_additive_mlp_{args.rep}_{bb_tag}_h{args.hidden}_l{args.layers}_nobias"
         result_path = args.out_dir / f"{stem}_metrics.json"
@@ -384,13 +485,16 @@ def main() -> None:
         pd.DataFrame(aux["history"]).to_csv(history_path, sep="\t", index=False)
         if args.write_predictions:
             write_pair_predictions(args.out_dir / f"{stem}_test_pair_predictions.tsv", aux["splits"]["test"], aux["predictions"]["test"])
+
+        # human train/val/test rows (group=in_distribution for the held-out test)
         for split in ("train", "val", "test"):
             m = result[split]
             rows.append(
                 {
                     "rep": args.rep,
                     "method": method,
-                    "split": split,
+                    "eval": f"human_{split}",
+                    "group": "in_distribution" if split == "test" else split,
                     "n": m["n"],
                     "pos_rate": m["pos_rate"],
                     "auroc": m["auroc"],
@@ -400,9 +504,32 @@ def main() -> None:
                     "best_epoch": result["best_epoch"],
                 }
             )
+        # zero-shot species rows
+        for species, info in species_results.items():
+            m = info["metrics"]
+            rows.append(
+                {
+                    "rep": args.rep,
+                    "method": method,
+                    "eval": species,
+                    "group": "zero_shot",
+                    "n": m["n"],
+                    "pos_rate": m["pos_rate"],
+                    "auroc": m["auroc"],
+                    "auprc": m["auprc"],
+                    "accuracy_at_0.5": m["accuracy_at_0.5"],
+                    "brier": m["brier"],
+                    "best_epoch": result["best_epoch"],
+                }
+            )
+        mean_msg = (
+            f" mean_species_auroc={result['mean_species_auroc']:.4f}"
+            if "mean_species_auroc" in result
+            else ""
+        )
         print(
             f"[{method} test] AUROC={result['test']['auroc']:.4f} "
-            f"AUPRC={result['test']['auprc']:.4f} -> {result_path}",
+            f"AUPRC={result['test']['auprc']:.4f}{mean_msg} -> {result_path}",
             flush=True,
         )
 
@@ -419,8 +546,10 @@ def main() -> None:
         payload=all_results,
         metrics={
             method: {
-                "auroc": res["test"]["auroc"],
-                "auprc": res["test"]["auprc"],
+                "human_test_auroc": res["test"]["auroc"],
+                "human_test_auprc": res["test"]["auprc"],
+                "mean_species_auroc": res.get("mean_species_auroc"),
+                "mean_species_auprc": res.get("mean_species_auprc"),
             }
             for method, res in all_results.items()
         },
@@ -428,6 +557,7 @@ def main() -> None:
             "hidden": args.hidden,
             "layers": args.layers,
             "methods": list(methods),
+            "zero_shot_species": zero_shot_species,
         },
     )
     pd.DataFrame(rows).to_csv(tsv_path, sep="\t", index=False)

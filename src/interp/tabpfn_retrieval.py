@@ -22,10 +22,16 @@ def load_split_with_indices(path: Path, max_rows: int | None, seed: int):
     return load_pair_embedding_split(path, max_rows, seed, return_indices=True)
 
 
-def read_split_csv(c3_dir: Path, split: str):
+def read_split_csv(clevel_dir: Path, split: str, family: str = "c3"):
+    """Load a RAPPPID C-level pair CSV (``{family}.{split}.csv``).
+
+    ``family`` defaults to ``c3`` so existing C3-only call sites keep working;
+    pass ``c1``/``c2`` for the other leakage levels. ``clevel_dir`` is the
+    directory that holds those CSVs (e.g. ``data/raw/rapppid_c1``).
+    """
     import pandas as pd
 
-    return pd.read_csv(c3_dir / f"c3.{split}.csv")
+    return pd.read_csv(clevel_dir / f"{family}.{split}.csv")
 
 
 def short_sequence(sequence: str, n: int = 24) -> str:
