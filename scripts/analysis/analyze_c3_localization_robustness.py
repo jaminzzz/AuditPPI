@@ -5,7 +5,7 @@ Follow-up to analyze_c3_localization_confound.py. The baseline "shares >=1 compa
 definition is lenient: cytoplasm (50.6% of test proteins) and nucleus (45.8%) are so
 common that two random human proteins co-localize by generic-label collision alone
 (~0.51^2 + ... chance on cytoplasm), inflating the co-localization rate and weakening
-the hard-negative-stripping control.
+the localization-matched hard-negative control.
 
 This script re-runs the decisive test (cosine AUROC on the co-localized subset) under
 three co-localization definitions of increasing stringency, all on the SAME pairs and
@@ -40,8 +40,12 @@ import torch
 
 from src.experiments.results import dump_experiment
 
-# reuse the exact loaders / metrics / compartment map from the baseline audit
-from AuditPPI.scripts.analysis.analyze_c3_localization_confound import (
+# Reuse the exact metrics / compartment map from the baseline audit.  When this
+# file is executed as ``python scripts/analysis/analyze_c3_localization_robustness.py``,
+# Python puts ``scripts/analysis`` on sys.path, so a same-directory import is the
+# stable path.  The old ``AuditPPI.scripts...`` package path is not valid in this
+# repo layout.
+from analyze_c3_localization_confound import (
     AUDIT_DIR,
     auroc_safe,
     build_protein_compartments,
@@ -145,7 +149,9 @@ def main() -> None:
     protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
     a_max, b_max, labels = materialize_pair_endpoints(index_cache, protein_cache, rep="sae_max")
     y = labels.numpy().astype(int)
-    assert len(align) == len(y), f"align {len(align)} vs reps {len(y)}"
+    align_y = align["label"].to_numpy().astype(int)
+    assert len(align_y) == len(y), f"align {len(align_y)} vs reps {len(y)}"
+    assert np.array_equal(align_y, y), "label misalignment between pair ids and pair-index cache"
 
     a_max = a_max.float()
     b_max = b_max.float()

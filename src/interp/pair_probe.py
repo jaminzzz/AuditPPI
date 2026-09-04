@@ -134,6 +134,79 @@ def materialize_pair_split(
     )
 
 
+def carve_cross_species_train_val(
+    index_cache_path: Path,
+    protein_cache: dict,
+    *,
+    rep: str,
+    backbone: str,
+    layer: int | None,
+    train_subsample: int | None,
+    val_frac: float,
+    seed: int,
+):
+    """Memory-safe cross_species train/val carve from a pair-index cache.
+
+    ``cross_species`` ships no official val split, so a stratified val is carved
+    from ``human_train`` (``seed+1``), then the remaining train is capped
+    (``seed``) -- the same order as :mod:`run_cross_species_tabpfn_topk`.
+
+    Unlike the fingerprint-baseline ``_assemble`` path -- which force-casts the
+    FULL graph endpoints to float32 before subsampling (~55 GB for the 421k-pair
+    human graph) -- this selects the train/val ROW INDICES from the cheap
+    pair-index labels FIRST, then gathers ONLY the selected endpoint rows at the
+    protein cache's native dtype (float16 / bool). Peak scales with the kept
+    subset (~100k train + val), not the raw graph, so it stays well inside a
+    shared-memory budget. Selection is bit-identical to the ``_assemble`` carve
+    (same seeds, same CSV row order; ``human_train`` is fully kept).
+
+    Returns ``(train_a, train_b, train_y, val_a, val_b, val_y)`` with endpoint
+    tensors row-aligned and ``y`` int64 numpy arrays.
+    """
+    import torch
+
+    from src.features.pairs import load_pair_index_cache
+    from src.features.protein_cache import representation_matrix
+
+    index_cache = load_pair_index_cache(index_cache_path)
+    labels_full = index_cache["labels"].numpy().astype(np.int64, copy=False)
+    n = len(labels_full)
+
+    # 1. Carve stratified val indices from the FULL graph labels (seed+1).
+    n_val = max(1, int(n * val_frac))
+    val_idx = stratified_subsample(labels_full, n_val, seed + 1)
+    if val_idx is None:
+        raise ValueError(
+            f"cross_species val carve failed: n={n} val_frac={val_frac}"
+        )
+    val_mask = np.zeros(n, dtype=bool)
+    val_mask[val_idx] = True
+    train_idx = np.flatnonzero(~val_mask)
+
+    # 2. Cap the train side AFTER the val carve (stratified, disjoint).
+    if train_subsample is not None and train_subsample < len(train_idx):
+        sub = stratified_subsample(labels_full[train_idx], train_subsample, seed)
+        train_idx = train_idx[sub]
+
+    # 3. Gather ONLY the selected endpoint rows (native dtype; float()'d per split
+    #    later inside sym_features on the small subset).
+    rows_a = index_cache["rows_a"].to(torch.long)
+    rows_b = index_cache["rows_b"].to(torch.long)
+    matrix = representation_matrix(protein_cache, rep, layer, backbone)
+
+    def _gather(selection: np.ndarray):
+        ti = torch.as_tensor(selection, dtype=torch.long)
+        ra = rows_a.index_select(0, ti)
+        rb = rows_b.index_select(0, ti)
+        emb_a = matrix.index_select(0, ra).contiguous()
+        emb_b = matrix.index_select(0, rb).contiguous()
+        return emb_a, emb_b
+
+    train_a, train_b = _gather(train_idx)
+    val_a, val_b = _gather(val_idx)
+    return train_a, train_b, labels_full[train_idx], val_a, val_b, labels_full[val_idx]
+
+
 def read_feature_ranking(path: Path) -> list[dict]:
     rows = []
     with path.open() as handle:
@@ -375,14 +448,30 @@ def compute_sym_shap_ranking(
         rank, flat_feature, sae_feature, block, rank_score, xgb_importance,
         mean_abs_shap, mean_signed_shap
     """
-    import xgboost as xgb
-
-    feature_dim = train_x.shape[1]  # 2 * sae_dim
     clf = fit_xgb(
         train_x, train_y, val_x, val_y,
         trees=trees, depth=depth, lr=lr, seed=seed, cpu=cpu, verbose=50,
     )
-    booster = clf.get_booster()
+    return rank_booster_by_shap(clf.get_booster(), val_x, sae_dim=sae_dim)
+
+
+def rank_booster_by_shap(
+    booster,
+    val_x: np.ndarray,
+    *,
+    sae_dim: int,
+) -> list[dict]:
+    """Rank every sym column of an *already-fit* booster by mean|TreeSHAP| on val.
+
+    The ranking half of :func:`compute_sym_shap_ranking`, split out so a caller
+    that already owns a fit booster (e.g. a saved frozen baseline) can derive the
+    identical ranking without re-fitting. ``val_x`` is the full ``[A*B, |A-B|]``
+    matrix (``2 * sae_dim`` columns). Returns the same backup-format rows sorted
+    by descending mean|shap|.
+    """
+    import xgboost as xgb
+
+    feature_dim = 2 * sae_dim
 
     # TreeSHAP on val. pred_contribs returns (n, feature_dim + 1); last col is the
     # bias term. booster was re-homed to CPU by fit_xgb, so this runs on CPU.
@@ -485,6 +574,7 @@ __all__ = [
     "BLOCK_PRODUCT",
     "SAE_DIM",
     "build_dense_sym_topk",
+    "carve_cross_species_train_val",
     "compute_sym_shap_ranking",
     "evaluate_species",
     "evaluate_species_v1",
@@ -494,6 +584,7 @@ __all__ = [
     "load_pair_embedding_split",
     "materialize_pair_split",
     "predict_proba_chunked",
+    "rank_booster_by_shap",
     "read_feature_ranking",
     "sae_dim_for_backbone",
     "select_top_features",

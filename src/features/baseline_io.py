@@ -5,11 +5,14 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 import torch
 
 from src.data.sequences import normalize_sequence
+
+if TYPE_CHECKING:
+    from src.data.pairs import Benchmark
 
 
 def count_pair_rows(path: Path, limit: int = 0) -> int:
@@ -42,6 +45,46 @@ def iter_pair_rows(
             if not seq_a or not seq_b:
                 raise ValueError(f"{path}: empty sequence at row {row_index}")
             yield row_index, seq_a, seq_b, float(row[label_col])
+
+
+def iter_benchmark_pairs(
+    benchmark: "Benchmark",
+    *,
+    limit: int = 0,
+) -> Iterator[tuple[int, str, str, float]]:
+    """Yield ``(row_index, seq_a, seq_b, label)`` from a loaded benchmark.
+
+    Drop-in analogue of :func:`iter_pair_rows` for the six pair families served
+    by :func:`src.data.pairs.load_benchmark`. Endpoint ids are resolved to their
+    attached sequences and normalized identically to the CSV path, so the pair
+    extractors' inner loops are unchanged.
+    """
+    for row_index, (pair, label) in enumerate(zip(benchmark.pairs, benchmark.labels)):
+        if limit and row_index >= limit:
+            break
+        id_a, id_b = pair
+        try:
+            seq_a = benchmark.seqs[id_a]
+            seq_b = benchmark.seqs[id_b]
+        except KeyError as exc:
+            raise ValueError(
+                f"benchmark {benchmark.name!r}: endpoint {exc.args[0]!r} at row "
+                f"{row_index} has no attached sequence (load with attach_seqs=True)"
+            ) from exc
+        seq_a = normalize_sequence(seq_a)
+        seq_b = normalize_sequence(seq_b)
+        if not seq_a or not seq_b:
+            raise ValueError(f"benchmark {benchmark.name!r}: empty sequence at row {row_index}")
+        yield row_index, seq_a, seq_b, float(label)
+
+
+def benchmark_stem(name: str) -> str:
+    """Path-safe output stem for a ``load_benchmark`` key.
+
+    ``c1:train`` → ``c1_train``; ``cross_species:ecoli`` → ``cross_species_ecoli``;
+    ``pring:human:test:BFS`` → ``pring_human_test_BFS``; a bare name maps to itself.
+    """
+    return name.replace(":", "_").replace("/", "_")
 
 
 def truncate_pair_balanced(seq_a: str, seq_b: str, max_total_tokens: int) -> tuple[str, str]:

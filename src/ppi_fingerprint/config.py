@@ -30,6 +30,29 @@ from conf.paths import (
 MODEL_NAMES = ("xgb", "tabpfn", "mlp_pair", "tabm_pair")
 PAIR_MODELS = frozenset({"mlp_pair", "tabm_pair"})
 
+# Fingerprint-baseline representation vocabulary. Extends the three SAE views
+# (:data:`~conf.model.REPRESENTATIONS`) with the backbone-agnostic eSIG-Net 573-D
+# physicochemical fingerprint (``esig``). Kept separate from ``REPRESENTATIONS``
+# so the participation oracle / SAE line stays pinned to the three SAE views; only
+# this baseline opts into the extra comparison rep. ``esig`` ignores backbone/layer
+# (served from the global eSIG cache), so it need only be run on a single nominal
+# axis rather than swept across all backbone-layer combinations.
+FINGERPRINT_REPS = (*REPRESENTATIONS, "esig")
+
+# eSIG is backbone/layer-agnostic, so it collapses the ``{backbone}L{layer}`` axis
+# tag onto a single fixed token. This keeps its results in their own summary/cell
+# files (``esig[_mode].json``) instead of clobbering the SAE ``esmcL60`` summary,
+# which carries a different rep set on the same nominal axis.
+ESIG_AXIS_TAG = "esig"
+
+
+def axis_tag(rep: str, backbone: str, layer: int) -> str:
+    """The ``b_tag`` a rep writes under: ``{backbone}L{layer}`` for SAE reps,
+    the fixed :data:`ESIG_AXIS_TAG` for the backbone-agnostic eSIG fingerprint."""
+    if rep == "esig":
+        return ESIG_AXIS_TAG
+    return f"{backbone}L{layer}"
+
 # Multi-seed matrix for stability reporting. Seed 42 is DEFAULT_SEED and is
 # treated as already completed for the primary xgb matrix; re-runs typically
 # only schedule the remaining seeds.
@@ -172,6 +195,8 @@ def summary_path(
 
 __all__ = [
     "CACHE",
+    "ESIG_AXIS_TAG",
+    "FINGERPRINT_REPS",
     "FINGERPRINT_SEEDS",
     "MODEL_NAMES",
     "NATIVE_TRAIN",
@@ -180,6 +205,7 @@ __all__ = [
     "PRING_DEFAULT_METHOD",
     "PRING_SPECIES_SAE_CACHES",
     "REPRESENTATIONS",
+    "axis_tag",
     "cell_dir",
     "cell_path",
     "cell_stem",

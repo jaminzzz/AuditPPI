@@ -42,6 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from conf.model import BACKBONE_DEFAULT_LAYER, DEFAULT_BACKBONE
 from conf.paths import (
     BERNETT_SAE_CACHE,
     C1_PAIR_INDEX_CACHES,
@@ -54,7 +55,12 @@ from conf.paths import (
     CLEVEL_SAE_CACHES,
     CROSS_SPECIES_PAIR_INDEX_CACHES,
     CROSS_SPECIES_SAE_CACHE,
+    CROSS_SPECIES_TABPFN_TOPK,
+    CROSS_SPECIES_TABPFN_RANKING,
     FEATURE_TABLE,
+    PDB_PPI_CONTACT_COMPAT_TOP4,
+    PDB_PPI_INTERFACE_ENRICHMENT_ALL_NONINTERFACE,
+    PDB_PPI_INTERFACE_ENRICHMENT_SURFACE_NONINTERFACE,
     PDB_PPI_SAE_CACHE,
     PIC_DATASET_PKL,
     PIC_HUMAN_CSV,
@@ -165,6 +171,17 @@ PAIR_REPS = ("sae_max", "binary")            # C3/PRING endpoint scripts REP_SUB
 # PRING_METHODS / PRING_SPECIES imported above (single source: pring_graph / paths).
 PROTEIN_REPS = ("sae_max", "binary", "esmc_mean")  # mirrors conf.model.REPRESENTATIONS
 
+
+def _participation_oracle_product(family: str, rep: str) -> Path:
+    """Default output written by scripts/audit_protein/run_participation_oracle.py."""
+    layer = BACKBONE_DEFAULT_LAYER[DEFAULT_BACKBONE]
+    return (
+        RESULTS_MAIN
+        / "ppi_fingerprint"
+        / f"seq_participation_oracle_{rep}_{family}_{DEFAULT_BACKBONE}_l{layer}.json"
+    )
+
+
 # A pair consumer's inputs are now the lightweight pair-index caches (endpoint
 # row indices + labels) plus the one v1 protein cache they gather channels from.
 # One index cache serves every (backbone, layer, rep) channel and pair mode, so
@@ -273,7 +290,7 @@ def _protein_experiments() -> list[Experiment]:
                     script="scripts/audit_protein/run_participation_oracle.py",
                     args=("--family", family, "--rep", rep),
                     inputs=(cache,),
-                    products=(RESULTS_PROTEIN / "participation_oracle",),
+                    products=(_participation_oracle_product(family, rep),),
                 )
             )
 
@@ -355,9 +372,9 @@ def _pair_experiments() -> list[Experiment]:
             Experiment(
                 name=f"pair.c3_endpoint_additive_mlp.{rep}",
                 layer="pair",
-                script="scripts/audit_pair/run_c3_sae_endpoint_additive_mlp.py",
-                args=("--rep", rep),
-                inputs=(C3_SAE_CACHE,),
+                script="scripts/audit_pair/run_clevel_sae_endpoint_additive_mlp.py",
+                args=("--family", "c3", "--rep", rep),
+                inputs=_pair_index_inputs(C3_PAIR_INDEX_CACHES, C3_SAE_CACHE),
                 products=(RESULTS_PAIR / "c3_endpoint_additive_mlp_sae",),
             )
         )
@@ -365,8 +382,8 @@ def _pair_experiments() -> list[Experiment]:
             Experiment(
                 name=f"pair.c3_endpoint_additive_ebm.{rep}",
                 layer="pair",
-                script="scripts/audit_pair/run_c3_sae_endpoint_additive_ebm.py",
-                args=("--rep", rep),
+                script="scripts/audit_pair/run_clevel_sae_endpoint_additive_ebm.py",
+                args=("--family", "c3", "--rep", rep),
                 inputs=_pair_index_inputs(C3_PAIR_INDEX_CACHES, C3_SAE_CACHE),
                 products=(RESULTS_PAIR / "c3_endpoint_additive_ebm_sae",),
             )
@@ -484,21 +501,23 @@ def _pair_experiments() -> list[Experiment]:
 # Ladder 3 -- RESIDUE (interface grounding)
 # ===========================================================================
 def _residue_experiments() -> list[Experiment]:
-    enrich_dir = RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos_sae"
     return [
         Experiment(
             name="residue.interface_sae_enrichment",
             layer="residue",
             script="scripts/audit_residue/compute_pdb_ppi_interface_sae_enrichment.py",
             inputs=(PDB_PPI_SAE_CACHE,),
-            products=(enrich_dir,),
+            products=(
+                PDB_PPI_INTERFACE_ENRICHMENT_ALL_NONINTERFACE,
+                PDB_PPI_INTERFACE_ENRICHMENT_SURFACE_NONINTERFACE,
+            ),
         ),
         Experiment(
             name="residue.contact_compatibility",
             layer="residue",
             script="scripts/audit_residue/compute_pdb_ppi_sae_contact_compatibility.py",
             inputs=(PDB_PPI_SAE_CACHE, FEATURE_TABLE),
-            products=(RESULTS_RESIDUE / "interface_grounding" / "pdb_ppi_pos_sae_contact_compat_top4",),
+            products=(PDB_PPI_CONTACT_COMPAT_TOP4,),
         ),
     ]
 
@@ -516,8 +535,6 @@ def _baseline_experiments() -> list[Experiment]:
 # Cross-cutting -- ANALYSIS / INTERPRETABILITY (consume upstream products)
 # ===========================================================================
 def _analysis_experiments() -> list[Experiment]:
-    from conf.paths import TABPFN_RANKING
-
     return [
         # Top-K SAE-feature probes: train on cross-species human_train endpoints,
         # zero-shot score the 5 held-out species. Gathers endpoint channels from
@@ -527,14 +544,14 @@ def _analysis_experiments() -> list[Experiment]:
         Experiment(
             name="analysis.cross_species_tabpfn_topk",
             layer="analysis",
-            script="scripts/analysis/run_cross_species_tabpfn_topk.py",
+            script="scripts/audit_pair/run_cross_species_tabpfn_topk.py",
             inputs=(
-                TABPFN_RANKING,
+                CROSS_SPECIES_TABPFN_RANKING,
                 *_pair_index_inputs(
                     CROSS_SPECIES_PAIR_INDEX_CACHES, CROSS_SPECIES_SAE_CACHE
                 ),
             ),
-            products=(RESULTS_PAIR / "tabpfn" / "cross_species_tabpfn_topk",),
+            products=(CROSS_SPECIES_TABPFN_TOPK,),
         ),
         # Model-free t(p) diagnostic: how participation-prone each pair benchmark is.
         Experiment(
@@ -569,7 +586,7 @@ def _interpretability_experiments() -> list[Experiment]:
             Experiment(
                 name=f"interp.tabpfn_retrieval.{family}",
                 layer="interpretability",
-                script="scripts/analysis/explain_tabpfn_retrieval.py",
+                script="scripts/audit_pair/explain_tabpfn_retrieval_cases.py",
                 args=("--family", family),
                 inputs=(ranking, *pair_inputs),
                 products=(clevel_tabpfn_retrieval_dir(family),),

@@ -70,7 +70,18 @@ from src.interp.pair_probe import (
 )
 from src.models.estimators.xgboost import fit_xgb
 
-FAMILIES = ("c1", "c2", "c3")
+FAMILIES = ("c1", "c2", "c3", "bernett", "pring")
+
+
+def _assemble_name(family: str, split: str, *, pring_method: str) -> str:
+    """Colon-spec benchmark name for ``_assemble``.
+
+    C-levels and Bernett use ``<family>:<split>``; PRING trains/evaluates on the
+    human graph of a fixed sampling method (``pring:human:<split>:<method>``).
+    """
+    if family == "pring":
+        return f"pring:human:{split}:{pring_method}"
+    return f"{family}:{split}"
 
 
 def parse_args() -> argparse.Namespace:
@@ -87,6 +98,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--top-k", type=int, default=200)
     p.add_argument("--top-k-mode", choices=["sae-id", "flat"], default="sae-id")
     p.add_argument("--train-subsample", type=int, default=100000)
+    p.add_argument("--pring-method", default="BFS",
+                   help="PRING human-graph sampling method (only used when --family pring)")
     p.add_argument("--device-id", type=int, default=None)
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--predict-batch-size", type=int, default=5000)
@@ -102,11 +115,13 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def assemble_split(family: str, split: str, rep: str, *, backbone: str, layer: int):
-    """train/val/test endpoints for a C-level family via the fingerprint path."""
+def assemble_split(family: str, split: str, rep: str, *, backbone: str, layer: int,
+                   pring_method: str = "BFS"):
+    """train/val/test endpoints for a benchmark family via the fingerprint path."""
     from src.ppi_fingerprint.baseline import _assemble
 
-    _, A, B, y, _ = _assemble(f"{family}:{split}", rep, backbone=backbone, layer=layer)
+    name = _assemble_name(family, split, pring_method=pring_method)
+    _, A, B, y, _ = _assemble(name, rep, backbone=backbone, layer=layer)
     return A, B, y
 
 
@@ -198,13 +213,18 @@ def main() -> None:
     layer = resolve_backbone_layer(args.backbone, args.layer)
     sae_dim = sae_dim_for_backbone(args.backbone)
 
-    out_dir = args.out_dir or (RESULTS_PAIR / "tabpfn" / args.family / "tabpfn_topk")
+    # PRING evaluates on the human graph of a fixed sampling method; keep its
+    # products in a method-tagged dir and its shap columns tagged the same way so
+    # they never collide with a future non-BFS run.
+    family_tag = (f"pring_human_{args.pring_method.lower()}"
+                  if args.family == "pring" else args.family)
+    out_dir = args.out_dir or (RESULTS_PAIR / "tabpfn" / family_tag / "tabpfn_topk")
     out_dir.mkdir(parents=True, exist_ok=True)
-    split_tag = f"{args.family}_val"
+    split_tag = f"{family_tag}_val"
 
     print(
-        f"[plan] family={args.family} rep={args.rep} {args.backbone}L{layer} "
-        f"sae_dim={sae_dim} top_k={args.top_k} out={out_dir}",
+        f"[plan] family={args.family} tag={family_tag} rep={args.rep} "
+        f"{args.backbone}L{layer} sae_dim={sae_dim} top_k={args.top_k} out={out_dir}",
         flush=True,
     )
 
@@ -212,7 +232,8 @@ def main() -> None:
     import torch
 
     train_a, train_b, train_y = assemble_split(
-        args.family, "train", args.rep, backbone=args.backbone, layer=layer
+        args.family, "train", args.rep, backbone=args.backbone, layer=layer,
+        pring_method=args.pring_method,
     )
     sub = stratified_subsample(train_y, args.train_subsample, args.seed)
     if sub is not None:
@@ -221,10 +242,12 @@ def main() -> None:
         train_b = train_b.index_select(0, ti).contiguous()
         train_y = train_y[sub]
     val_a, val_b, val_y = assemble_split(
-        args.family, "val", args.rep, backbone=args.backbone, layer=layer
+        args.family, "val", args.rep, backbone=args.backbone, layer=layer,
+        pring_method=args.pring_method,
     )
     test_a, test_b, test_y = assemble_split(
-        args.family, "test", args.rep, backbone=args.backbone, layer=layer
+        args.family, "test", args.rep, backbone=args.backbone, layer=layer,
+        pring_method=args.pring_method,
     )
     print(
         f"[data] train={len(train_y)} (pos={train_y.mean():.3f}) "

@@ -40,15 +40,19 @@ from conf.model import DEFAULT_BACKBONE, DEFAULT_SEED, resolve_backbone_layer
 from conf.paths import (
     CLEVEL_PAIR_INDEX_CACHES,
     CLEVEL_SAE_CACHES,
+    PPI_PREDICTION_CACHES,
     RAPPPID_C1_DIR,
     RAPPPID_C2_DIR,
     RAPPPID_C3_DIR,
+    RESULTS_PAIR,
     clevel_tabpfn_attention_audit_dir,
     clevel_tabpfn_ranking,
 )
 from src.eval.classification import probe_classification_metrics as metrics
 from src.experiments.results import dump_experiment
 from src.features.pairs import load_protein_feature_cache
+from src.features.protein_cache import pair_feature_row_indices
+from src.features.sampling import stratified_subsample
 from src.interp.pair_probe import (
     build_dense_sym_topk,
     materialize_pair_split,
@@ -67,7 +71,11 @@ from src.interp.tabpfn_retrieval import (
 from src.models.estimators.tabpfn import fit_tabpfn
 from src.runtime import setup_device
 
-FAMILIES = ("c1", "c2", "c3")
+# c1/c2/c3 resolve through their pair-index caches and RAPPPID CSVs. bernett and
+# pring have no pre-built pair-index cache, so they resolve pairs on the fly from
+# their own v1 protein cache via seq2idx (see ``_assembled_split``).
+CLEVEL_FAMILIES = ("c1", "c2", "c3")
+FAMILIES = ("c1", "c2", "c3", "bernett", "pring")
 FAMILY_DIRS = {
     "c1": RAPPPID_C1_DIR,
     "c2": RAPPPID_C2_DIR,
@@ -83,8 +91,14 @@ def parse_args() -> argparse.Namespace:
         "--family",
         choices=FAMILIES,
         default="c3",
-        help="RAPPPID leakage level. Ranking, caches, CSVs, and out-dir are "
-        "all resolved from this (default: c3).",
+        help="Benchmark family. Ranking, caches, CSVs, and out-dir are all "
+        "resolved from this (default: c3). c1/c2/c3 route pair-index caches; "
+        "bernett and pring resolve pairs on the fly via seq2idx.",
+    )
+    p.add_argument(
+        "--pring-method",
+        default="BFS",
+        help="PRING human-graph sampling method (only used when --family pring).",
     )
     p.add_argument(
         "--ranking-csv",
@@ -134,6 +148,112 @@ def parse_args() -> argparse.Namespace:
         help="include shared feature ids in neighbor table",
     )
     return p.parse_args()
+
+
+def family_tag(family: str, pring_method: str) -> str:
+    """Product/tag name for a family (PRING is tagged per sampling method)."""
+    if family == "pring":
+        return f"pring_human_{pring_method.lower()}"
+    return family
+
+
+def resolve_ranking_csv(family: str, pring_method: str) -> Path:
+    """The family's own binary/sym ranking from its tabpfn_topk run."""
+    if family in CLEVEL_FAMILIES:
+        return clevel_tabpfn_ranking(family)
+    return (
+        RESULTS_PAIR
+        / "tabpfn"
+        / family_tag(family, pring_method)
+        / "tabpfn_topk"
+        / "feature_ranking_binary_sym.csv"
+    )
+
+
+def resolve_out_dir(family: str, pring_method: str) -> Path:
+    if family in CLEVEL_FAMILIES:
+        return clevel_tabpfn_attention_audit_dir(family)
+    return (
+        RESULTS_PAIR
+        / "leakage_audit"
+        / f"tabpfn_{family_tag(family, pring_method)}_attention_feature_label"
+    )
+
+
+def _benchmark_name(family: str, split: str, pring_method: str) -> str:
+    """Colon-spec benchmark name for ``load_benchmark``.
+
+    Bernett uses ``bernett:<split>``; PRING trains and evaluates on the human
+    graph of a fixed sampling method (``pring:human:<split>:<method>``).
+    """
+    if family == "pring":
+        return f"pring:human:{split}:{pring_method}"
+    return f"{family}:{split}"
+
+
+def _assembled_split(
+    family: str,
+    split: str,
+    protein_cache: dict,
+    *,
+    rep: str,
+    backbone: str,
+    layer: int,
+    pring_method: str,
+    max_rows: int | None,
+    seed: int,
+):
+    """Endpoints for a family without a pair-index cache (bernett / pring).
+
+    Resolves pairs to shared-matrix row indices first and subsamples those
+    indices, so only the retained rows are ever gathered. The full pair-endpoint
+    graph is never materialized -- gathering it would force-cast to float32 and
+    cost tens of GB on the larger graphs.
+
+    Returns ``(A, B, y, len_a, len_b, kept_original_idx)`` where ``len_a``/``len_b``
+    are per-row endpoint sequence lengths (the CSV route's ``query``/``text``
+    length columns have no equivalent here, so they come from the benchmark's own
+    ``seqs`` map keyed by each pair's endpoint ids).
+    """
+    import torch
+
+    from src.data import load_benchmark
+
+    bench = load_benchmark(_benchmark_name(family, split, pring_method), attach_seqs=True)
+    resolved = pair_feature_row_indices(bench, protein_cache, rep, layer, backbone)
+    if resolved is None:
+        raise RuntimeError(
+            f"no cached proteins for {family}:{split} rep {rep!r} "
+            f"({backbone} L{layer})"
+        )
+    matrix, rows_a, rows_b, y, kept = resolved
+
+    keep = stratified_subsample(y, max_rows, seed) if max_rows else None
+    if keep is not None:
+        rows_a = rows_a[keep]
+        rows_b = rows_b[keep]
+        y = y[keep]
+        kept = [kept[i] for i in keep]
+
+    ia = torch.as_tensor(rows_a, dtype=torch.long)
+    ib = torch.as_tensor(rows_b, dtype=torch.long)
+    A = matrix.index_select(0, ia).float()
+    B = matrix.index_select(0, ib).float()
+
+    pairs = bench.pairs
+    seqs = bench.seqs
+    len_a = np.array([len(seqs.get(pairs[i][0]) or "") for i in kept], dtype=np.int64)
+    len_b = np.array([len(seqs.get(pairs[i][1]) or "") for i in kept], dtype=np.int64)
+    return A, B, y, len_a, len_b, np.asarray(kept, dtype=np.int64)
+
+
+def _csv_lengths(split_df, original_idx: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per-row endpoint sequence lengths from a RAPPPID split CSV."""
+    q = split_df["query"].to_numpy()
+    t = split_df["text"].to_numpy()
+    len_a = np.array([len(str(q[i])) for i in original_idx], dtype=np.int64)
+    len_b = np.array([len(str(t[i])) for i in original_idx], dtype=np.int64)
+    return len_a, len_b
 
 
 def fmt(value: float | int | None, digits: int = 4) -> str:
@@ -359,11 +479,14 @@ def make_report(out_dir: Path, family: str, summary: dict[str, object], rows: li
 def main() -> int:
     args = parse_args()
     family = args.family
-    ranking_csv = args.ranking_csv or clevel_tabpfn_ranking(family)
-    clevel_dir = args.clevel_dir or FAMILY_DIRS[family]
-    out_dir = args.out_dir or clevel_tabpfn_attention_audit_dir(family)
-    pair_index_caches = CLEVEL_PAIR_INDEX_CACHES[family]
-    protein_cache_path = CLEVEL_SAE_CACHES[family]
+    is_clevel = family in CLEVEL_FAMILIES
+    tag = family_tag(family, args.pring_method)
+    ranking_csv = args.ranking_csv or resolve_ranking_csv(family, args.pring_method)
+    clevel_dir = args.clevel_dir or (FAMILY_DIRS[family] if is_clevel else None)
+    out_dir = args.out_dir or resolve_out_dir(family, args.pring_method)
+    protein_cache_path = (
+        CLEVEL_SAE_CACHES[family] if is_clevel else PPI_PREDICTION_CACHES[family]
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     start_time = time.time()
@@ -398,33 +521,56 @@ def main() -> int:
     if train_max_rows is None and args.tabpfn_subsample_samples > 0:
         train_max_rows = args.tabpfn_subsample_samples
 
+    route = "pair-index caches" if is_clevel else "seq2idx on-the-fly"
     print(
-        f"[load] {family} train/{args.query_split} via pair-index caches "
+        f"[load] {tag} train/{args.query_split} via {route} "
         f"({args.rep} {args.backbone}L{layer} sae_dim={sae_dim}; "
         f"train_max_rows={train_max_rows})",
         flush=True,
     )
     protein_cache = load_protein_feature_cache(protein_cache_path)
-    atr, btr, ytr, train_original_idx = materialize_pair_split(
-        pair_index_caches["train"],
-        protein_cache,
-        rep=args.rep,
-        backbone=args.backbone,
-        layer=layer,
-        max_rows=train_max_rows,
-        seed=args.seed,
-        return_indices=True,
-    )
-    aq, bq, yq, query_original_idx = materialize_pair_split(
-        pair_index_caches[args.query_split],
-        protein_cache,
-        rep=args.rep,
-        backbone=args.backbone,
-        layer=layer,
-        max_rows=None,
-        seed=args.seed + 1,
-        return_indices=True,
-    )
+    if is_clevel:
+        pair_index_caches = CLEVEL_PAIR_INDEX_CACHES[family]
+        atr, btr, ytr, train_original_idx = materialize_pair_split(
+            pair_index_caches["train"],
+            protein_cache,
+            rep=args.rep,
+            backbone=args.backbone,
+            layer=layer,
+            max_rows=train_max_rows,
+            seed=args.seed,
+            return_indices=True,
+        )
+        aq, bq, yq, query_original_idx = materialize_pair_split(
+            pair_index_caches[args.query_split],
+            protein_cache,
+            rep=args.rep,
+            backbone=args.backbone,
+            layer=layer,
+            max_rows=None,
+            seed=args.seed + 1,
+            return_indices=True,
+        )
+        # Endpoint lengths come from the RAPPPID split CSVs for these families.
+        train_df = read_split_csv(clevel_dir, "train", family=family)
+        query_df = read_split_csv(clevel_dir, args.query_split, family=family)
+        train_len_a, train_len_b = _csv_lengths(train_df, train_original_idx)
+        query_len_a, query_len_b = _csv_lengths(query_df, query_original_idx)
+    else:
+        split_kw = dict(
+            rep=args.rep,
+            backbone=args.backbone,
+            layer=layer,
+            pring_method=args.pring_method,
+        )
+        atr, btr, ytr, train_len_a, train_len_b, train_original_idx = _assembled_split(
+            family, "train", protein_cache,
+            max_rows=train_max_rows, seed=args.seed, **split_kw,
+        )
+        aq, bq, yq, query_len_a, query_len_b, query_original_idx = _assembled_split(
+            family, args.query_split, protein_cache,
+            max_rows=None, seed=args.seed + 1, **split_kw,
+        )
 
     if args.max_queries and args.max_queries < len(yq):
         query_positions = np.arange(args.max_queries, dtype=np.int64)
@@ -460,8 +606,6 @@ def main() -> int:
     Etr, train_configs = embeddings_with_configs(model, Xtr, "train")
     Etr_mean_norm = l2_normalize(Etr.mean(axis=0))
 
-    train_df = read_split_csv(clevel_dir, "train", family=family)
-    query_df = read_split_csv(clevel_dir, args.query_split, family=family)
     ytr = ytr.astype(np.int64, copy=False)
     yq = yq.astype(np.int64, copy=False)
 
@@ -551,7 +695,6 @@ def main() -> int:
             )
 
             query_csv_idx = int(query_original_idx[split_pos])
-            qrow = query_df.iloc[query_csv_idx]
             query_rows.append(
                 {
                     "family": family,
@@ -583,14 +726,13 @@ def main() -> int:
                     "moderate_jaccard_count": int(moderate_mask.sum()),
                     "moderate_jaccard_same_label_rate": moderate_same_label_rate,
                     "risk_score": risk_score,
-                    "query_seq_a_len": len(str(qrow["query"])),
-                    "query_seq_b_len": len(str(qrow["text"])),
+                    "query_seq_a_len": int(query_len_a[split_pos]),
+                    "query_seq_b_len": int(query_len_b[split_pos]),
                 }
             )
 
             for rank, ni in enumerate(nn, 1):
                 train_csv_idx = int(train_original_idx[ni])
-                trow = train_df.iloc[train_csv_idx]
                 row = {
                     "family": family,
                     "query_split": args.query_split,
@@ -610,8 +752,8 @@ def main() -> int:
                     "input_jaccard": float(jac[rank - 1]),
                     "high_jaccard": int(jac[rank - 1] >= args.jaccard_high),
                     "moderate_jaccard": int(jac[rank - 1] >= args.jaccard_moderate),
-                    "train_seq_a_len": len(str(trow["query"])),
-                    "train_seq_b_len": len(str(trow["text"])),
+                    "train_seq_a_len": int(train_len_a[ni]),
+                    "train_seq_b_len": int(train_len_b[ni]),
                 }
                 if args.write_shared_features:
                     row["shared_sae_features"] = top_shared_features(
@@ -700,7 +842,7 @@ def main() -> int:
     high_risk = (max_j >= args.jaccard_high) & (same_rate >= 0.8) & (risk >= 0.10)
     moderate_risk = (max_j >= args.jaccard_moderate) & (same_rate >= 0.7) & (risk >= 0.03)
     summary = {
-        "dataset": family,
+        "dataset": tag,
         "family": family,
         "query_split": args.query_split,
         "rep": args.rep,
@@ -745,7 +887,7 @@ def main() -> int:
     dump_experiment(
         out_dir / "summary.json",
         task="tabpfn_clevel_attention_feature_label",
-        dataset=family,
+        dataset=tag,
         features=f"sae_top{args.top_k}_{args.top_k_mode}",
         split=args.query_split,
         model="tabpfn",
@@ -754,8 +896,8 @@ def main() -> int:
         metrics={"auroc": summary["test_auroc"], "auprc": summary["test_auprc"]},
         hyperparameters={"family": family, "top_k": args.top_k, "neighbors": args.neighbors},
     )
-    make_report(out_dir, family, summary, query_rows)
-    draw_svg(out_dir, family, query_rows, summary)
+    make_report(out_dir, tag, summary, query_rows)
+    draw_svg(out_dir, tag, query_rows, summary)
 
     print(f"[done] {out_dir / 'query_audit.tsv'}", flush=True)
     print(f"[done] {out_dir / 'neighbor_audit_topk.tsv'}", flush=True)

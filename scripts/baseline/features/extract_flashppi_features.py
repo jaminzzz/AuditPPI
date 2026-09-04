@@ -14,8 +14,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from conf.paths import BASELINES
-from src.features.manifest import load_protein_manifest
+from conf.paths import BASELINES, SAE
+from src.features.manifest import load_protein_manifest, manifest_from_protein_cache
 from src.runtime.device import pick_free_gpu
 
 
@@ -29,7 +29,14 @@ def pick_gpu() -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, action="append", required=True)
+    parser.add_argument("--input", type=Path, action="append", default=None)
+    parser.add_argument(
+        "--from-protein-cache",
+        type=Path,
+        default=None,
+        help="reuse the unique-sequence manifest of a v1 protein cache (rows stay "
+        "aligned to the pair-side protein caches); mutually exclusive with --input",
+    )
     parser.add_argument("--input-format", choices=["auto", "fasta", "table"], default="auto")
     parser.add_argument("--sequence-cols", default="sequence")
     parser.add_argument("--id-cols", default="")
@@ -38,7 +45,12 @@ def main() -> None:
         type=Path,
         default=BASELINES / "FlashPPI" / "FlashPPI-weights",
     )
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="output .pt (default: data/sae/baseline_features/flashppi/{cache_stem}.pt)",
+    )
     parser.add_argument("--max-length", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--limit", type=int, default=0)
@@ -47,6 +59,19 @@ def main() -> None:
     parser.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="fp16")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+
+    if bool(args.input) == bool(args.from_protein_cache):
+        parser.error("pass exactly one of --input or --from-protein-cache")
+
+    output = args.output
+    if output is None:
+        if not args.from_protein_cache:
+            parser.error("--output is required unless --from-protein-cache is given")
+        stem = Path(args.from_protein_cache).stem.replace("_protein_features_max1022", "")
+        output = SAE / "baseline_features" / "flashppi" / f"{stem}.pt"
+    if output.exists() and not args.overwrite:
+        print(f"[skip] {output} exists; pass --overwrite to rebuild", flush=True)
+        return
 
     if args.device.startswith("cuda"):
         device_id = str(args.device_id) if args.device_id is not None else pick_gpu()
@@ -60,12 +85,19 @@ def main() -> None:
 
     from src.features.extractors import save_feature_cache
 
-    manifest = load_protein_manifest(
-        args.input,
-        input_format=args.input_format,
-        sequence_cols=comma_list(args.sequence_cols),
-        id_cols=comma_list(args.id_cols) or None,
-    )
+    if args.from_protein_cache:
+        manifest = manifest_from_protein_cache(args.from_protein_cache)
+        print(
+            f"[manifest] {args.from_protein_cache} -> {len(manifest)} unique sequences",
+            flush=True,
+        )
+    else:
+        manifest = load_protein_manifest(
+            args.input,
+            input_format=args.input_format,
+            sequence_cols=comma_list(args.sequence_cols),
+            id_cols=comma_list(args.id_cols) or None,
+        )
     if args.limit:
         keep = min(args.limit, len(manifest))
         manifest.protein_ids = manifest.protein_ids[:keep]
@@ -118,7 +150,7 @@ def main() -> None:
                 print(f"[FlashPPI] {end}/{len(manifest)} proteins {rate:.2f}/s", flush=True)
 
     save_feature_cache(
-        args.output,
+        output,
         manifest=manifest,
         features=features,
         extractor_meta={
@@ -129,10 +161,11 @@ def main() -> None:
             "clip_dim": clip_dim,
             "max_length": args.max_length,
             "pair_score": "0.5 * (q(A) dot k(B) + q(B) dot k(A))",
+            "from_protein_cache": str(args.from_protein_cache) if args.from_protein_cache else None,
         },
         overwrite=args.overwrite,
     )
-    print(f"[saved] {args.output}", flush=True)
+    print(f"[saved] {output}", flush=True)
 
 
 if __name__ == "__main__":

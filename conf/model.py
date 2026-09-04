@@ -86,6 +86,16 @@ ESM2_SAE_AVAILABLE_LAYERS: tuple[int, ...] = (33,)  # InterPLM ships layer 33 on
 ESM2_SAE_DEFAULT_LAYER = 33
 
 
+# === eSIG-Net physicochemical fingerprint — backbone-agnostic comparison line =
+# A pure sequence -> 573-D descriptor (AAC-20 + CTriad-343 + AC-210 over 7
+# normalized physicochemical properties, lag 30). No backbone, no SAE, no layer:
+# the width is fixed by the descriptor definition. Computed on the FULL sequence
+# (eSIG's native behaviour), unlike the 1022-residue-capped ESM channels. Serves
+# as the physicochemical baseline the SAE fingerprint is compared against, and is
+# small enough to feed TabPFN's native feature budget directly.
+ESIG_DIM = 573
+
+
 # === Residue truncation (BOS/EOS sit on top of these budgets) ===============
 # Callers use ``max_length = max_residues + 2`` (or equivalent), so these are
 # *residue* caps, not tokenizer max_length.

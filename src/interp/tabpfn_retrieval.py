@@ -137,7 +137,7 @@ def top_shared_features(
     items = []
     for position in shared[:limit]:
         metadata = feature_metadata[int(position)]
-        block = str(metadata["block"]).replace("AND(a*b)", "AND").replace("|a-b|", "XOR")
+        block = str(metadata["block"]).replace("AND(a*b)", "COACT").replace("|a-b|", "DIFF")
         items.append(f"{block}:{metadata['sae_feature']}")
     return ";".join(items)
 

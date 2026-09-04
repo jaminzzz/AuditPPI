@@ -17,6 +17,11 @@
 
 # --- Runtime logs / ad-hoc shell chains (not experiment provenance) ---
 /logs/
+# Driver stdout captured next to the scripts that emit it (scripts/*/runs/*.log,
+# scripts/*/runs/_logs/). The launcher .sh files ARE tracked; their output is not.
+*.log
+_logs/
+.latest_pending_log
 
 # --- Python bytecode / caches ---
 __pycache__/

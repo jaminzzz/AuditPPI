@@ -9,9 +9,9 @@ subdir so the three levels never overwrite each other::
     results/audit_pair/tabpfn/{family}/tabpfn_retrieval_explanations/
 
     PY=/data/wmzhu/anaconda3/envs/E1/bin/python
-    $PY scripts/analysis/explain_tabpfn_retrieval.py --family c3
-    $PY scripts/analysis/explain_tabpfn_retrieval.py --family c1
-    $PY scripts/analysis/explain_tabpfn_retrieval.py --family c2
+    $PY scripts/audit_pair/explain_tabpfn_retrieval_cases.py --family c3
+    $PY scripts/audit_pair/explain_tabpfn_retrieval_cases.py --family c1
+    $PY scripts/audit_pair/explain_tabpfn_retrieval_cases.py --family c2
 """
 
 from __future__ import annotations

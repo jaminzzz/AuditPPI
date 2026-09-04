@@ -10,12 +10,13 @@ that similarity encodes, using UniProt subcellular-localization annotation:
      co-localize less (refs 11-12: the localization shortcut).  Measured by
      "shares >=1 compartment" and compartment Jaccard, with single-feature AUROC.
 
-  2. HARD-NEGATIVE STRIPPING (the decisive test) — restrict to the CO-LOCALIZED
-     subset (pairs sharing >=1 compartment) and re-measure whether SAE cosine still
-     separates pos/neg.  If the global cosine AUROC (~0.68) collapses toward 0.5 on
-     co-localized pairs, the concordance signal WAS largely localization, not learned
-     interaction.  Any residual AUROC is the concordance that survives a co-localized
-     hard-negative control.
+  2. LOCALIZATION-MATCHED HARD-NEGATIVE CONTROL (the decisive test) — restrict to
+     the CO-LOCALIZED subset (pairs sharing >=1 compartment) and re-measure whether
+     SAE cosine still separates pos/neg. This strips away easy localization-mismatch
+     negatives and leaves harder co-localized negatives. If the global cosine AUROC
+     (~0.68) collapses toward 0.5 on co-localized pairs, the concordance signal WAS
+     largely localization, not learned interaction. Any residual AUROC is the
+     concordance that survives the co-localized hard-negative control.
 
 Compartments are coarse-grained from GO cellular-component (structured, GO-id bearing;
 falls back to the free-text subcellular_cc only when go_cc is empty).
@@ -23,7 +24,8 @@ falls back to the free-text subcellular_cc only when go_cc is empty).
 Inputs:
   results/audit_pair/negative_sampling_audit/c3_{split}_pair_ids.parquet
   results/audit_pair/negative_sampling_audit/c3_uniprot_localization.parquet
-  pair_caches/esmc/sae_max/{split}_embeddings.pt
+  data/sae/pair_caches/c3/{split}_pairs.pt
+  data/sae/protein_caches/c3_protein_features_max1022.pt
 
 Outputs:
   results/audit_pair/negative_sampling_audit/c3_{split}_localization_confound.json
@@ -152,7 +154,9 @@ def main() -> None:
     protein_cache = load_protein_feature_cache(C3_SAE_CACHE)
     a_max, b_max, labels = materialize_pair_endpoints(index_cache, protein_cache, rep="sae_max")
     y = labels.numpy().astype(int)
-    assert len(align) == len(y), f"align {len(align)} vs reps {len(y)}"
+    align_y = align["label"].to_numpy().astype(int)
+    assert len(align_y) == len(y), f"align {len(align_y)} vs reps {len(y)}"
+    assert np.array_equal(align_y, y), "label misalignment between pair ids and pair-index cache"
 
     a_max = a_max.float()
     b_max = b_max.float()
@@ -203,7 +207,7 @@ def main() -> None:
         "neg": float(shares[m & (y == 0)].mean()) if (m & (y == 0)).sum() else float("nan"),
     }
 
-    # ---- 2. hard-negative stripping: cosine AUROC on the co-localized subset ----
+    # ---- 2. localization-matched hard-negative control: cosine AUROC on co-localized pairs ----
     coloc = m & (shares > 0)          # both annotated AND sharing >=1 compartment
     noncoloc = m & (shares == 0)      # both annotated AND sharing none
     report["cosine_auroc"] = {

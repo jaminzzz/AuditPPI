@@ -43,7 +43,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from conf.model import DEFAULT_BACKBONE, DEFAULT_SEED, REPRESENTATIONS, resolve_backbone_layer
+from conf.model import DEFAULT_BACKBONE, DEFAULT_SEED, resolve_backbone_layer
 
 from src.eval import evaluate_scorer
 from src.data import pairs as D
@@ -57,12 +57,14 @@ from src.models.estimators.tabpfn import fit_tabpfn, predict_proba_chunked
 from src.models.estimators.xgboost import fit_xgb
 from src.ppi_fingerprint.config import (
     CACHE,
+    FINGERPRINT_REPS,
     MODEL_NAMES,
     NATIVE_TRAIN,
     OUT_DIR,
     PAIR_MODELS,
     PRING_DEFAULT_METHOD,
     PRING_SPECIES_SAE_CACHES,
+    axis_tag,
     cell_path,
     family_of,
 )
@@ -289,7 +291,7 @@ def _score_eval(
 
     if write:
         family = _family(eval_name)
-        b_tag = f"{backbone}L{resolved_layer}"
+        b_tag = axis_tag(rep, backbone, resolved_layer)
         path = cell_path(
             family, model, rep, b_tag, eval_name,
             pair_mode=pair_mode,
@@ -327,8 +329,8 @@ def run_baseline_evals(
     """
     if model not in MODEL_NAMES:
         raise ValueError(f"unknown model {model!r}; choose from {MODEL_NAMES}")
-    if rep not in REPRESENTATIONS:
-        raise ValueError(f"unknown representation {rep!r}; choose from {REPRESENTATIONS}")
+    if rep not in FINGERPRINT_REPS:
+        raise ValueError(f"unknown representation {rep!r}; choose from {FINGERPRINT_REPS}")
     if pair_mode not in PAIR_MODES:
         raise ValueError(f"unknown pair_mode {pair_mode!r}; choose from {PAIR_MODES}")
     if not eval_names:

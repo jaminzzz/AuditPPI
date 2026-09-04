@@ -2,7 +2,7 @@
 
 `src.interp` contains reusable methods for explaining model outputs
 and SAE-feature behavior. Command-line entry points live under
-`scripts/analysis/` (e.g. `explain_tabpfn_retrieval.py`,
+`scripts/audit_pair/` (e.g. `explain_tabpfn_retrieval_cases.py`,
 `run_cross_species_tabpfn_topk.py`).
 
 Current modules:

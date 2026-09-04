@@ -145,11 +145,31 @@ def extract_esmc_features(
     except (TypeError, ValueError):
         load_kwargs.pop("attn_implementation")
         model = AutoModel.from_pretrained(str(model_path), **load_kwargs)
-    model = model.to(device).eval()
+    model = model.eval()
     tokenizer = AutoTokenizer.from_pretrained(str(model_path))
     n_layers = int(model.config.n_layers)
     if any(layer < 1 or layer > n_layers for layer in requested_layers):
         raise ValueError(f"ESM-C layers must be within 1..{n_layers}, got {requested_layers}")
+
+    # When the deepest requested layer is shallower than the full stack, drop the
+    # unused upper blocks *while still on CPU* -- before ``.to(device)`` -- so the
+    # GPU load peak itself falls by ~n_unused/n_layers of the backbone (not just
+    # the steady state). The captured tensor is the pre-final-norm residual stream
+    # of the deepest requested block, so values stay byte-comparable with the
+    # full-depth caches; the forward is additionally short-circuited by the hook.
+    max_requested = max(requested_layers)
+    early_exit = max_requested < n_layers
+    blocks = _find_transformer_blocks(model, n_layers)
+    if early_exit:
+        for idx in range(len(blocks) - 1, max_requested - 1, -1):
+            del blocks[idx]
+        print(
+            f"[ESM-C] early-exit at layer {max_requested}/{n_layers}: "
+            f"dropped {n_layers - max_requested} upper blocks on CPU before .to(device)",
+            flush=True,
+        )
+
+    model = model.to(device).eval()
 
     sae, checkpoint_layers = _load_esmc_sae(sae_path, requested_layers, device)
     features: dict[str, torch.Tensor] = {}
@@ -164,15 +184,24 @@ def extract_esmc_features(
             len(manifest), sae_dim, binary=True
         )
 
+    # ``blocks`` already had its unused upper entries dropped on CPU above, so
+    # ``blocks[max_requested - 1]`` is now the deepest remaining block. Register a
+    # hook on each requested block; the deepest one additionally short-circuits
+    # the forward pass so the (already-removed) upper blocks are never reached.
     captured: dict[int, torch.Tensor] = {}
     handles = []
-    blocks = _find_transformer_blocks(model, n_layers)
+
+    class _StopForward(Exception):
+        """Sentinel raised inside the hook to short-circuit the forward pass."""
+
     for layer in requested_layers:
         if layer == n_layers:
             continue
 
         def capture(_module, _inputs, output, *, layer_idx=layer):
             captured[layer_idx] = output[0] if isinstance(output, tuple) else output
+            if early_exit and layer_idx == max_requested:
+                raise _StopForward
 
         handles.append(blocks[layer - 1].register_forward_hook(capture))
 
@@ -185,7 +214,10 @@ def extract_esmc_features(
             sequences = [manifest.sequences[i][:max_residues] for i in indices]
             encoded = tokenizer(sequences, return_tensors="pt", padding=True)
             encoded = {key: value.to(device) for key, value in encoded.items()}
-            output = model(**encoded, output_hidden_states=False)
+            try:
+                output = model(**encoded, output_hidden_states=False)
+            except _StopForward:
+                output = None
             layer_states = dict(captured)
             if n_layers in requested_layers:
                 layer_states[n_layers] = output.last_hidden_state

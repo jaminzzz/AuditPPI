@@ -38,11 +38,7 @@ from src.data.pring_graph import (
     full_graph_participation_labels,
     load_pring_human_split,
 )
-from src.eval.classification import (
-    binary_classification_metrics,
-    safe_auprc,
-    safe_auroc,
-)
+from src.eval.classification import binary_classification_metrics
 from src.experiments.results import dump_experiment
 from src.features.feature_selection import (
     build_importance_rows,
@@ -51,7 +47,7 @@ from src.features.feature_selection import (
 )
 from src.features.pooled_assembly import prepare_features
 from src.features.sequence_composition import FORMAL_FEATURE_KINDS
-from src.eval.participation import read_labeled_pairs
+from src.eval.participation import endpoint_min_pair_metrics, read_labeled_pairs
 from src.models.estimators.xgboost import fit_xgb_classifier
 
 
@@ -96,29 +92,14 @@ def write_predictions(
 
 
 def pair_metrics(path: Path, *, pred_prob: Mapping[str, float], drop_self_pairs: bool) -> dict:
+    """Endpoint-min pair shortcut on one labelled PRING pair file (path-tagged).
+
+    Scoring lives in :func:`src.eval.participation.endpoint_min_pair_metrics` so
+    the post-hoc backfill (``backfill_pring_degree_pair_metrics.py``) and a live
+    ``--pair-eval`` run produce byte-identical dicts.
+    """
     pairs, y = read_labeled_pairs(path, drop_self_pairs=drop_self_pairs)
-    scores: list[float] = []
-    yy: list[int] = []
-    skipped = 0
-    for (a, b), label in zip(pairs, y):
-        pa, pb = pred_prob.get(a), pred_prob.get(b)
-        if pa is None or pb is None:
-            skipped += 1
-            continue
-        scores.append(min(pa, pb))
-        yy.append(int(label))
-    y2 = np.asarray(yy, dtype=np.int8)
-    s = np.asarray(scores, dtype=np.float32)
-    return {
-        "path": str(path),
-        "score": "min(pred_high_prob_a, pred_high_prob_b)",
-        "n_total": int(len(pairs)),
-        "n_scored": int(y2.size),
-        "n_skipped": int(skipped),
-        "pos_rate": round(float(y2.mean()), 6) if y2.size else None,
-        "auroc": safe_auroc(y2, s),
-        "auprc": safe_auprc(y2, s),
-    }
+    return {"path": str(path), **endpoint_min_pair_metrics(pairs, y, pred_prob)}
 
 
 def main() -> None:

@@ -2,7 +2,10 @@
 """Extract DeepNano mean/min/max features from a frozen PLM final layer.
 
 Baseline-only: ESM-2-650M layer 33 and ESM-C-6B final layer (80), written as
-``auditppi_protein_features_v1`` under ``DEEPNANO_DIR/deepnano_*_last/``.
+``auditppi_protein_features_v1``. With ``--from-protein-cache`` the output
+defaults to ``data/sae/baseline_features/deepnano/{cache_stem}_{backbone}.pt``,
+reusing that cache's unique-sequence manifest so rows stay aligned to the
+pair-side protein caches.
 
 The older C3-only layer-60 cache builder lived at
 ``scripts/cache/cache_deepnano_embeddings.py`` and was moved to
@@ -17,8 +20,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from conf.paths import DEEPNANO_DIR, ESM2_650M_MODEL, ESMC_MODEL
-from src.features.manifest import load_protein_manifest
+from conf.paths import ESM2_650M_MODEL, ESMC_MODEL, SAE
+from src.features.manifest import load_protein_manifest, manifest_from_protein_cache
 from src.runtime.device import pick_free_gpu
 
 
@@ -62,7 +65,14 @@ def residue_mask(attention_mask):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backbone", choices=["esm2", "esmc"], required=True)
-    parser.add_argument("--input", type=Path, action="append", required=True)
+    parser.add_argument("--input", type=Path, action="append", default=None)
+    parser.add_argument(
+        "--from-protein-cache",
+        type=Path,
+        default=None,
+        help="reuse the unique-sequence manifest of a v1 protein cache (rows stay "
+        "aligned to the pair-side protein caches); mutually exclusive with --input",
+    )
     parser.add_argument("--input-format", choices=["auto", "fasta", "table"], default="auto")
     parser.add_argument("--sequence-cols", default="sequence")
     parser.add_argument("--id-cols", default="")
@@ -77,6 +87,19 @@ def main() -> None:
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
+    if bool(args.input) == bool(args.from_protein_cache):
+        parser.error("pass exactly one of --input or --from-protein-cache")
+
+    output = args.output
+    if output is None:
+        if not args.from_protein_cache:
+            parser.error("--output is required unless --from-protein-cache is given")
+        stem = Path(args.from_protein_cache).stem.replace("_protein_features_max1022", "")
+        output = SAE / "baseline_features" / "deepnano" / f"{stem}_{args.backbone}.pt"
+    if output.exists() and not args.overwrite:
+        print(f"[skip] {output} exists; pass --overwrite to rebuild", flush=True)
+        return
+
     if args.device.startswith("cuda"):
         device_id = str(args.device_id) if args.device_id is not None else pick_gpu()
         os.environ["CUDA_VISIBLE_DEVICES"] = device_id
@@ -89,12 +112,19 @@ def main() -> None:
 
     from src.features.extractors import save_feature_cache
 
-    manifest = load_protein_manifest(
-        args.input,
-        input_format=args.input_format,
-        sequence_cols=comma_list(args.sequence_cols),
-        id_cols=comma_list(args.id_cols) or None,
-    )
+    if args.from_protein_cache:
+        manifest = manifest_from_protein_cache(args.from_protein_cache)
+        print(
+            f"[manifest] {args.from_protein_cache} -> {len(manifest)} unique sequences",
+            flush=True,
+        )
+    else:
+        manifest = load_protein_manifest(
+            args.input,
+            input_format=args.input_format,
+            sequence_cols=comma_list(args.sequence_cols),
+            id_cols=comma_list(args.id_cols) or None,
+        )
     if args.limit:
         keep = min(args.limit, len(manifest))
         manifest.protein_ids = manifest.protein_ids[:keep]
@@ -111,14 +141,12 @@ def main() -> None:
         ).to(args.device).eval()
         layer = int(model.config.n_layers)
         hidden_dim = int(model.config.d_model)
-        default_output = DEEPNANO_DIR / "deepnano_esmc_last" / "protein_features.pt"
     else:
         model_name = args.model or ESM2_650M_MODEL
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = EsmModel.from_pretrained(model_name, add_pooling_layer=False).to(args.device).eval()
         layer = int(model.config.num_hidden_layers)
         hidden_dim = int(model.config.hidden_size)
-        default_output = DEEPNANO_DIR / "deepnano_esm2_last" / "protein_features.pt"
 
     prefix = f"deepnano_{args.backbone}_l{layer}_"
     features = {
@@ -155,7 +183,6 @@ def main() -> None:
                 rate = done / max(time.time() - start_time, 1e-6)
                 print(f"[DeepNano] {done}/{len(manifest)} proteins {rate:.2f}/s", flush=True)
 
-    output = args.output or default_output
     save_feature_cache(
         output,
         manifest=manifest,
@@ -168,6 +195,7 @@ def main() -> None:
             "pooling": ["mean", "min", "max"],
             "max_residues": args.max_residues,
             "dtype": args.dtype,
+            "from_protein_cache": str(args.from_protein_cache) if args.from_protein_cache else None,
         },
         overwrite=args.overwrite,
     )

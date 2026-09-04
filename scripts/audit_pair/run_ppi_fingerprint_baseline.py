@@ -51,9 +51,11 @@ from src.data.pring_graph import METHODS as PRING_METHODS
 from src.experiments.results import dump_experiment
 from src.features.pairs import PAIR_MODES
 from src.ppi_fingerprint.config import (
+    FINGERPRINT_REPS,
     MODEL_NAMES as MODELS,
     PRING_DEFAULT_METHOD,
     REPRESENTATIONS as REPS,
+    axis_tag,
     summary_path,
 )
 from src.runtime.device import pick_free_gpu
@@ -88,8 +90,10 @@ def main() -> None:
     p.add_argument("--backbone", choices=BACKBONES, default=DEFAULT_BACKBONE)
     p.add_argument("--layer", type=int, default=None,
                    help="within-cache layer (default: backbone default)")
-    p.add_argument("--reps", nargs="*", choices=REPS, default=list(REPS),
-                   help="pooling views to sweep (default: all)")
+    p.add_argument("--reps", nargs="*", choices=FINGERPRINT_REPS, default=list(REPS),
+                   help="pooling views to sweep (default: the three SAE views; "
+                        "'esig' adds the backbone-agnostic eSIG-Net 573-D "
+                        "physicochemical fingerprint, opt-in via --reps esig)")
     p.add_argument("--pair-mode", choices=PAIR_MODES, default="sym",
                    help="pair assembly for every model (shared vocabulary); only "
                         "concat uses AB/BA. xgb/tabpfn default to sym; product / "
@@ -105,6 +109,17 @@ def main() -> None:
     if layer not in BACKBONE_LAYERS[args.backbone]:
         raise ValueError(f"backbone {args.backbone!r} has no layer {layer}")
 
+    # eSIG is backbone/layer-agnostic and writes under its own ``esig`` axis tag,
+    # so it cannot share a summary file with the SAE reps (which key on
+    # ``{backbone}L{layer}``). Require it to run alone to keep each summary file
+    # unambiguous -- ``--reps esig`` for the eSIG line, ``--reps ...`` for SAE.
+    if "esig" in args.reps and len(args.reps) > 1:
+        raise SystemExit(
+            "eSIG is backbone/layer-agnostic and lands in its own summary "
+            "(esig[_mode].json); run it alone via --reps esig, separately from "
+            "the SAE reps."
+        )
+
     dev = str(args.device_id) if args.device_id is not None else str(pick_free_gpu())
     os.environ["CUDA_VISIBLE_DEVICES"] = dev
     print(f"[device] CUDA_VISIBLE_DEVICES={dev}", flush=True)
@@ -113,7 +128,10 @@ def main() -> None:
     from src.ppi_fingerprint.baseline import run_baseline_evals
 
     evals = family_evals(args.family)
-    b_tag = f"{args.backbone}L{layer}"
+    # eSIG collapses the backbone/layer axis onto its own ``esig`` tag; SAE reps
+    # keep ``{backbone}L{layer}``. The guard above ensures a single call carries a
+    # single axis, so one b_tag covers every rep and the summary file is exact.
+    b_tag = axis_tag(args.reps[0], args.backbone, layer)
     # Every model now consumes pair_mode: pair nets fold the endpoints inside the
     # net, tabular models (xgb/tabpfn) build the pair block up front. xgb/tabpfn
     # default to ``sym`` (legacy layout untouched) and gain ``product``/``absdiff``

@@ -118,6 +118,41 @@ def read_labeled_pairs(
     return _read_pring_pair_file(path, drop_self_pairs=drop_self_pairs)
 
 
+def endpoint_min_pair_metrics(
+    pairs: Sequence[Pair],
+    labels: Sequence[int],
+    pred_prob: Mapping[str, float],
+) -> dict:
+    """Score a labelled pair list by ``min`` of the two endpoints' predictions.
+
+    The endpoint-only pair shortcut used by every high-participation /
+    high-degree classifier: a pair is scored without any jointly constructed
+    feature, purely by the weaker of its two protein-level scores. Pairs with an
+    endpoint missing from ``pred_prob`` are skipped and counted.
+    """
+    scores: List[float] = []
+    kept_labels: List[int] = []
+    skipped = 0
+    for (endpoint_a, endpoint_b), label in zip(pairs, labels):
+        predicted_a, predicted_b = pred_prob.get(endpoint_a), pred_prob.get(endpoint_b)
+        if predicted_a is None or predicted_b is None:
+            skipped += 1
+            continue
+        scores.append(min(predicted_a, predicted_b))
+        kept_labels.append(int(label))
+    y = np.asarray(kept_labels, dtype=np.int8)
+    p = np.asarray(scores, dtype=float)
+    return {
+        "score": "min(pred_high_prob_a, pred_high_prob_b)",
+        "n_total": int(len(pairs)),
+        "n_scored": int(y.size),
+        "n_skipped": int(skipped),
+        "pos_rate": round(float(y.mean()), 6) if y.size else None,
+        "auroc": safe_auroc(y, p),
+        "auprc": safe_auprc(y, p),
+    }
+
+
 def participation_pair_metrics(
     pair_path: Path,
     *,
@@ -186,6 +221,7 @@ def write_participation_predictions(
 
 __all__ = [
     "benchmark_diagnostic",
+    "endpoint_min_pair_metrics",
     "participation_node_metrics",
     "participation_pair_metrics",
     "read_labeled_pairs",

@@ -67,6 +67,15 @@ DATA = ROOT / "data"
 CONF = ROOT / "conf"
 MANUSCRIPTS = ROOT / "manuscripts"
 FIGURES = MANUSCRIPTS / "figures"
+SOURCE_DATA = MANUSCRIPTS / "source_data"
+# Supplementary Information is a self-contained sibling of the main-text outputs:
+# its own code, figures, per-panel source data and table CSVs. Kept separate so
+# the SI renumbering (drafts/si_figures.md) never collides with the legacy
+# figureS*.pdf names under FIGURES.
+SI = MANUSCRIPTS / "si"
+SI_FIGURES = SI / "figures"
+SI_SOURCE_DATA = SI / "source_data"
+SI_TABLES = SI / "tables"
 EXTERNAL = ROOT / "external"
 # Baseline repos (DeepNano/FlashPPI/mint/PIC/PPLM/PRING/RoseTTAFold2-PPI/SWING/
 # pllm-ppi-data-leakage) pulled into the project. Was `external/` symlinks for PIC,
@@ -148,6 +157,19 @@ ESM2_SEQ_CACHE = SEQ_CACHES / "esm2_650m_seq_cache.pt"
 # max1022 suffix pins the cross-backbone-comparable residue budget.
 POOLED_ESMC_SEQ_CACHE = SEQ_CACHES / "pooled_esmc_l60_l80_max1022_features.pt"
 POOLED_ESM2_SEQ_CACHE = SEQ_CACHES / "pooled_esm2_l33_max1022_features.pt"
+
+# Per-unique-sequence manifest (one row per normalized sequence, with the raw
+# sequence string) that seeds every pooled/per-dataset cache. Source of the
+# sequence list the eSIG builder iterates -- no need to load the 16 GB pooled
+# feature caches just to read sequences.
+POOLED_SEQUENCE_MANIFEST = SEQ_CACHES / "pooled_sequence_manifest.parquet"
+
+# Global eSIG-Net 573-D physicochemical fingerprint cache. eSIG is a pure
+# sequence function (backbone-agnostic, computed on the FULL sequence, not the
+# 1022-residue budget the ESM caches use), so a single cache keyed by sequence
+# serves every benchmark family and every model. Sliced/gathered by sequence at
+# read time exactly like the ESM channels.
+POOLED_ESIG_CACHE = SEQ_CACHES / "pooled_esig573.pt"
 
 # Benchmark -> pooled per-sequence cache. Which seq-cache each benchmark's pooled
 # fingerprints live in; shared by the ppi_fingerprint baseline and the C3 /
@@ -259,6 +281,16 @@ CROSS_SPECIES_PAIR_INDEX_CACHES = {
 RESIDUE_SAE_CACHES = SAE / "residue_caches"
 PDB_PPI_SAE_CACHE = RESIDUE_SAE_CACHES / "pdb_ppi_pos_sae_cache_gpu0"
 PDB_PPI_SAE_CACHE_META = RESIDUE_SAE_CACHES / "pdb_ppi_pos_sae_cache_meta"
+PDB_PPI_INTERFACE_GROUNDING = RESULTS_RESIDUE / "interface_grounding"
+PDB_PPI_INTERFACE_ENRICHMENT_ALL_NONINTERFACE = (
+    PDB_PPI_INTERFACE_GROUNDING / "pdb_ppi_pos_sae_enrichment_all_noninterface"
+)
+PDB_PPI_INTERFACE_ENRICHMENT_SURFACE_NONINTERFACE = (
+    PDB_PPI_INTERFACE_GROUNDING / "pdb_ppi_pos_sae_enrichment_surface_noninterface"
+)
+PDB_PPI_CONTACT_COMPAT_TOP4 = (
+    PDB_PPI_INTERFACE_GROUNDING / "pdb_ppi_pos_sae_contact_compat_top4"
+)
 
 # Precomputed inputs for supplementary figures (results/propensity JSONs).
 # Structure mirrors the old SAE_PPI outputs/ layout: esmc/{results,propensity}/, baselines/results/.
@@ -269,14 +301,15 @@ SAE_SUPP_INPUTS = SAE / "supplementary_inputs"
 # TabPFN products are a Ladder-2 (pair-scale) result, so they live under
 # results/audit_pair/tabpfn/. Per-family rankings land at
 # ``tabpfn/{family}/tabpfn_topk/feature_ranking_binary_sym.csv`` (produced by
-# ``run_clevel_tabpfn_topk.py``); the shared ``TABPFN_RANKING`` / ``TABPFN_TOPK``
-# paths keep the pre-family layout for back-compat consumers that still point
-# there. Retrieval explanations and attention audits write under the family's
-# own subdir so c1/c2/c3 never overwrite each other.
+# ``run_clevel_tabpfn_topk.py``). The shared TABPFN_* constants default to the
+# C3 family because the manuscript/case-study consumers are C3-specific; new
+# matrix code should use ``clevel_tabpfn_*`` helpers or the cross-species
+# constants below.
 TABPFN = RESULTS_PAIR / "tabpfn"
-TABPFN_TOPK = TABPFN / "tabpfn_topk"
+TABPFN_DEFAULT_FAMILY = "c3"
+TABPFN_TOPK = TABPFN / TABPFN_DEFAULT_FAMILY / "tabpfn_topk"
 TABPFN_RANKING = TABPFN_TOPK / "feature_ranking_binary_sym.csv"
-TABPFN_RETRIEVAL = TABPFN / "tabpfn_retrieval_explanations"
+TABPFN_RETRIEVAL = TABPFN / TABPFN_DEFAULT_FAMILY / "tabpfn_retrieval_explanations"
 
 
 def clevel_tabpfn_ranking(family: str) -> Path:

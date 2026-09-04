@@ -24,18 +24,86 @@ from conf.model import (
     BACKBONE_DENSE_DIM,
     BACKBONE_SAE_DIM,
     DEFAULT_BACKBONE,
+    ESIG_DIM,
     REPRESENTATIONS,
     SAE_BINARY_THRESHOLD,
     feature_cache_key,
     resolve_backbone_layer,
 )
 
+# eSIG-Net 573-D is a backbone/layer-agnostic pure-sequence fingerprint served
+# from one global cache (see ``_esig_matrix_for``), so it is not a member of the
+# (backbone, layer)-coupled ``REPRESENTATIONS`` tuple. Accessors accept it as an
+# extra representation name alongside the SAE views.
+ESIG_REP = "esig"
+_ACCEPTED_REPS = (*REPRESENTATIONS, ESIG_REP)
+
+_ESIG_FORMAT = "auditppi_esig_features_v1"
+_ESIG_CACHE_KEY = "_esig_matrix_573"  # memo slot on a protein cache dict
+_ESIG_GLOBAL: Optional[Dict] = None   # process-wide global eSIG cache payload
+
 
 def rep_dim(rep: str, backbone: str = DEFAULT_BACKBONE) -> int:
     """Column count of a representation's per-protein matrix for a backbone."""
-    if rep not in REPRESENTATIONS:
-        raise ValueError(f"unknown representation {rep!r}; choose from {REPRESENTATIONS}")
+    if rep not in _ACCEPTED_REPS:
+        raise ValueError(f"unknown representation {rep!r}; choose from {_ACCEPTED_REPS}")
+    if rep == ESIG_REP:
+        return ESIG_DIM
     return BACKBONE_DENSE_DIM[backbone] if rep == "esmc_mean" else BACKBONE_SAE_DIM[backbone]
+
+
+def _load_global_esig() -> Dict:
+    """Load (once per process) the global eSIG-Net 573-D sequence cache."""
+    global _ESIG_GLOBAL
+    if _ESIG_GLOBAL is None:
+        import torch
+
+        from conf.paths import POOLED_ESIG_CACHE
+
+        if not POOLED_ESIG_CACHE.exists():
+            raise FileNotFoundError(
+                f"global eSIG cache absent: {POOLED_ESIG_CACHE}; build it with "
+                f"scripts/prep/build_esig_seq_cache.py"
+            )
+        payload = torch.load(POOLED_ESIG_CACHE, map_location="cpu", weights_only=False)
+        if payload.get("format") != _ESIG_FORMAT:
+            raise ValueError(f"{POOLED_ESIG_CACHE} is not an {_ESIG_FORMAT} cache")
+        _ESIG_GLOBAL = payload
+    return _ESIG_GLOBAL
+
+
+def _esig_matrix_for(cache: Dict):
+    """Per-cache eSIG-Net 573-D matrix, row-aligned to the cache's SAE channels.
+
+    eSIG is backbone/layer-agnostic: one global pure-sequence cache
+    (``POOLED_ESIG_CACHE``) holds every unique sequence's 573-D vector. Each
+    protein cache's rows are produced by mapping its own ``seq2idx`` (the same
+    seq→row map every SAE channel is indexed by) through the global cache, so the
+    result lines up row-for-row with ``features[...]`` and can be gathered by the
+    identical ``index_select`` path. Memoized on the cache dict so the gather is
+    paid once per process.
+    """
+    cached = cache.get(_ESIG_CACHE_KEY)
+    if cached is not None:
+        return cached
+    import torch
+
+    esig = _load_global_esig()
+    g_seq2idx = esig["seq2idx"]
+    g_matrix = esig["esig_573"]
+    local_seq2idx = cache["seq2idx"]
+    rows = [0] * len(local_seq2idx)
+    for seq, local_row in local_seq2idx.items():
+        g_row = g_seq2idx.get(seq)
+        if g_row is None:
+            raise KeyError(
+                "cache sequence absent from global eSIG cache; rebuild it with "
+                "scripts/prep/build_esig_seq_cache.py to cover all sequences"
+            )
+        rows[int(local_row)] = int(g_row)
+    out = g_matrix.index_select(0, torch.as_tensor(rows, dtype=torch.long)).float()
+    cache[_ESIG_CACHE_KEY] = out
+    return out
 
 
 # Representation -> v1 channel suffix. ``binary`` maps to the stored
@@ -64,8 +132,13 @@ def representation_matrix(
     (``esmc_sae_max`` / ``esmc_mean``, ESM-C single layer) for the archived
     ``*_old`` caches; ``layer``/``backbone`` are ignored there.
     """
-    if rep not in REPRESENTATIONS:
-        raise ValueError(f"unknown representation {rep!r}; choose from {REPRESENTATIONS}")
+    if rep not in _ACCEPTED_REPS:
+        raise ValueError(f"unknown representation {rep!r}; choose from {_ACCEPTED_REPS}")
+
+    # eSIG is backbone/layer-agnostic -- served from the global sequence cache and
+    # gathered to this cache's row order, ignoring backbone/layer entirely.
+    if rep == ESIG_REP:
+        return _esig_matrix_for(cache)
 
     features = cache.get("features")
     if features is not None:
@@ -124,22 +197,28 @@ def protein_feature_rows(
     return matrix.index_select(0, index).float().numpy(), kept
 
 
-def pair_feature_rows(
+def pair_feature_row_indices(
     bench,
     cache: Dict,
     rep: str,
     layer: Optional[int] = None,
     backbone: str = DEFAULT_BACKBONE,
 ):
-    """Map benchmark pairs into per-endpoint pooled representation rows.
+    """Resolve benchmark pairs to shared-matrix row indices (no materialization).
 
-    Returns ``(A, B, y, kept_idx)`` with A/B float32 torch tensors
-    ``(n_kept, rep_dim)``, ``y`` an int64 numpy array, and ``kept_idx`` the
-    indices into ``bench.pairs`` whose *both* endpoints were cached (the rest are
-    skipped). Returns ``None`` when no pair had both endpoints cached.
+    Index-only twin of :func:`pair_feature_rows`. Returns
+    ``(matrix, rows_a, rows_b, y, kept_idx)`` where ``matrix`` is the shared
+    per-protein representation tensor (native dtype -- ``binary`` stays bool,
+    ``sae_max``/``esmc_mean`` stay float16/float32 as stored), ``rows_a``/``rows_b``
+    are int64 numpy arrays of row indices into ``matrix`` for each kept pair, ``y``
+    is an int64 numpy label array, and ``kept_idx`` the indices into ``bench.pairs``
+    whose *both* endpoints were cached. Returns ``None`` when no pair matched.
+
+    Unlike :func:`pair_feature_rows` this never gathers the per-pair endpoint
+    graph (which force-casts to float32 -- tens of GB for large pair counts). The
+    caller decides when/whether to gather rows, so memory stays bounded by the
+    unique-protein matrix rather than the pair count.
     """
-    import torch
-
     seq2idx = cache["seq2idx"]
     matrix = representation_matrix(cache, rep, layer, backbone)
     rows_a: List[int] = []
@@ -159,16 +238,46 @@ def pair_feature_rows(
         kept.append(i)
     if not kept:
         return None
+    return (
+        matrix,
+        np.asarray(rows_a, dtype=np.int64),
+        np.asarray(rows_b, dtype=np.int64),
+        np.asarray(ys, dtype=np.int64),
+        kept,
+    )
+
+
+def pair_feature_rows(
+    bench,
+    cache: Dict,
+    rep: str,
+    layer: Optional[int] = None,
+    backbone: str = DEFAULT_BACKBONE,
+):
+    """Map benchmark pairs into per-endpoint pooled representation rows.
+
+    Returns ``(A, B, y, kept_idx)`` with A/B float32 torch tensors
+    ``(n_kept, rep_dim)``, ``y`` an int64 numpy array, and ``kept_idx`` the
+    indices into ``bench.pairs`` whose *both* endpoints were cached (the rest are
+    skipped). Returns ``None`` when no pair had both endpoints cached.
+    """
+    import torch
+
+    resolved = pair_feature_row_indices(bench, cache, rep, layer, backbone)
+    if resolved is None:
+        return None
+    matrix, rows_a, rows_b, ys, kept = resolved
     ia = torch.as_tensor(rows_a, dtype=torch.long)
     ib = torch.as_tensor(rows_b, dtype=torch.long)
     A = matrix.index_select(0, ia).float()
     B = matrix.index_select(0, ib).float()
-    return A, B, np.asarray(ys, dtype=np.int64), kept
+    return A, B, ys, kept
 
 
 __all__ = [
     "REPRESENTATIONS",
     "pair_feature_rows",
+    "pair_feature_row_indices",
     "protein_feature_rows",
     "rep_dim",
     "representation_matrix",

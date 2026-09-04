@@ -13,10 +13,11 @@ import subprocess
 import time
 from pathlib import Path
 
-from conf.paths import BASELINES
+from conf.paths import BASELINES, SAE
+from src.data.pairs import load_benchmark
 from src.features.baseline_io import (
-    count_pair_rows,
-    iter_pair_rows,
+    benchmark_stem,
+    iter_benchmark_pairs,
     save_baseline_pair_cache,
     truncate_pair_balanced,
 )
@@ -30,13 +31,20 @@ def pick_gpu() -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pairs", type=Path, required=True)
-    parser.add_argument("--a-col", default="query")
-    parser.add_argument("--b-col", default="text")
-    parser.add_argument("--label-col", default="label")
+    parser.add_argument(
+        "--benchmark",
+        required=True,
+        help="load_benchmark key, e.g. c1:train, cross_species:ecoli, "
+        "bernett:test, pring:human:test:BFS",
+    )
     parser.add_argument("--pplm-root", type=Path, default=BASELINES / "PPLM")
     parser.add_argument("--checkpoint", type=Path, default=BASELINES / "PPLM" / "pplm_t33_650M.pt")
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="output .pt (default: data/sae/baseline_features/pplm/{stem}.pt)",
+    )
     parser.add_argument("--max-total-tokens", type=int, default=1024)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--device-id", type=int, default=None)
@@ -45,6 +53,11 @@ def main() -> None:
     parser.add_argument("--progress-every", type=int, default=100)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+
+    output = args.output or (SAE / "baseline_features" / "pplm" / f"{benchmark_stem(args.benchmark)}.pt")
+    if output.exists() and not args.overwrite:
+        print(f"[skip] {output} exists; pass --overwrite to rebuild", flush=True)
+        return
 
     if args.device.startswith("cuda"):
         device_id = str(args.device_id) if args.device_id is not None else pick_gpu()
@@ -71,7 +84,9 @@ def main() -> None:
     del checkpoint
     model = model.to(args.device).eval()
 
-    n = count_pair_rows(args.pairs, args.limit)
+    benchmark = load_benchmark(args.benchmark, attach_seqs=True)
+    n = min(len(benchmark), args.limit) if args.limit else len(benchmark)
+    print(f"[benchmark] {args.benchmark} -> {n} pairs", flush=True)
     attention_dim = model.num_layers * model.attention_heads
     embed_dim = model.embed_dim
     features = {}
@@ -90,13 +105,7 @@ def main() -> None:
 
     with torch.inference_mode():
         for output_row, (_row_index, seq_a, seq_b, label) in enumerate(
-            iter_pair_rows(
-                args.pairs,
-                a_col=args.a_col,
-                b_col=args.b_col,
-                label_col=args.label_col,
-                limit=args.limit,
-            )
+            iter_benchmark_pairs(benchmark, limit=args.limit)
         ):
             seq_a, seq_b = truncate_pair_balanced(seq_a, seq_b, args.max_total_tokens)
             _, _, tokens_a = converter([("A", seq_a)])
@@ -153,12 +162,12 @@ def main() -> None:
                 print(f"[PPLM] {output_row + 1}/{n} pairs {rate:.2f}/s", flush=True)
 
     save_baseline_pair_cache(
-        args.output,
+        output,
         baseline="PPLM",
         labels=labels,
         features=features,
         meta={
-            "source_pairs": str(args.pairs),
+            "source_benchmark": args.benchmark,
             "checkpoint": str(args.checkpoint),
             "layers": model.num_layers,
             "heads": model.attention_heads,
@@ -168,7 +177,7 @@ def main() -> None:
         },
         overwrite=args.overwrite,
     )
-    print(f"[saved] {args.output}", flush=True)
+    print(f"[saved] {output}", flush=True)
 
 
 if __name__ == "__main__":

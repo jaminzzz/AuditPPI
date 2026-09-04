@@ -45,11 +45,18 @@ from conf.model import (
     DEFAULT_SEED,
     resolve_backbone_layer,
 )
-from conf.paths import RESULTS_PAIR, CLEVEL_PAIR_INDEX_CACHES, CLEVEL_SAE_CACHES
+from conf.paths import (
+    RESULTS_PAIR,
+    CLEVEL_PAIR_INDEX_CACHES,
+    CROSS_SPECIES_PAIR_INDEX_CACHES,
+    PPI_PREDICTION_CACHES,
+)
+from src.data.pairs import load_benchmark
 from src.eval.metrics import pair_score_metrics as metrics
 from src.experiments.results import dump_experiment
 from src.features.pairs import load_pair_index_cache, load_protein_feature_cache
-from src.features.protein_cache import representation_matrix
+from src.features.protein_cache import pair_feature_row_indices, representation_matrix
+from src.ppi_fingerprint.baseline import stratified_subsample
 from src.runtime import seed_all
 from src.interp.annotations import add_sae_annotations
 from src.interp.attribution import (
@@ -57,22 +64,34 @@ from src.interp.attribution import (
 )
 from src.models.architectures.mlp_endpoint import MLPEndpoint
 
-FAMILIES = ("c1", "c2", "c3")
+# Families with a native (train, val, test) triple this script can fit:
+#   c1/c2/c3       -- lightweight pair-index caches (seq2idx keyed, pre-filtered).
+#   bernett        -- no pair-index cache; pairs resolved on the fly through the
+#                     shared protein cache's seq2idx via pair_feature_row_indices.
+#   cross_species  -- pair-index caches exist (human_train / human_test / species)
+#                     but ship no official val, so val is carved stratified from
+#                     human_train and the in-distribution human_test is the "test".
+# PRING is per-species (human train graph + zero-shot species) and keeps its own
+# driver (run_pring_sae_endpoint_additive_mlp.py).
+FAMILIES = ("c1", "c2", "c3", "bernett", "cross_species")
 REPS = ("sae_max", "binary")
+# Default cross_species val carve: matches the fingerprint-baseline / tabpfn-topk
+# convention (stratified 10% off human_train). Training uses memory-safe
+# batch-gather, so the full human_train graph is kept (no train subsample).
+CROSS_SPECIES_VAL_FRAC = 0.1
 
 
-def load_cache(
-    rep: str, cache_path: Path, *, backbone: str = DEFAULT_BACKBONE, layer: int | None = None
+def matrix_from_cache(
+    cache: dict, rep: str, *, backbone: str = DEFAULT_BACKBONE, layer: int | None = None
 ) -> torch.Tensor:
-    """Load the endpoint feature matrix from a v1 protein cache.
+    """Select + cast the endpoint feature matrix from a loaded v1 protein cache.
 
     Reads the ``auditppi_protein_features_v1`` layout, selecting the
     ``(backbone, layer, rep)`` channel via the shared
     :func:`~src.features.protein_cache.representation_matrix`. ``binary`` arrives
     as bool and is cast to uint8 (the MLP's ``float()`` upcast is applied per
-    batch), ``sae_max`` stays float. Rows are indexed by the pair-index cache.
+    batch), ``sae_max`` stays float. Rows are indexed by the pair splits.
     """
-    cache = load_protein_feature_cache(cache_path)
     mat = representation_matrix(cache, rep, layer, backbone)
     if rep == "binary":
         mat = mat.to(torch.uint8)
@@ -83,14 +102,13 @@ def load_cache(
     return mat
 
 
-def load_split(family: str, split: str) -> dict:
-    """Load a C-level split's endpoint rows from its pair-index cache.
+def _clevel_split(family: str, split: str) -> dict:
+    """C-level split endpoint rows straight out of the pair-index cache.
 
-    Reads ``rows_a``/``rows_b``/``labels`` straight out of the family's
-    ``auditppi_pair_index_v1`` cache. The cache is already pre-filtered to pairs
-    whose endpoints are present in the protein cache, so there is nothing to skip
-    here; the two endpoint row indices reference the shared protein-feature matrix
-    loaded by :func:`load_cache`.
+    Reads ``rows_a``/``rows_b``/``labels`` from the family's
+    ``auditppi_pair_index_v1`` cache. The cache is pre-filtered to pairs whose
+    endpoints are present in the protein cache, so nothing is skipped; both row
+    indices reference the shared protein-feature matrix.
     """
     index_cache = load_pair_index_cache(CLEVEL_PAIR_INDEX_CACHES[family][split])
     labels = index_cache["labels"].to(torch.float32)
@@ -102,6 +120,108 @@ def load_split(family: str, split: str) -> dict:
         "n_raw": int(labels.numel()),
         "n_skipped": 0,
     }
+
+
+def _bernett_split(
+    split: str, cache: dict, *, rep: str, backbone: str, layer: int | None
+) -> dict:
+    """Bernett split endpoint rows resolved on the fly (no pair-index cache).
+
+    Bernett pairs are keyed by sequence hash and have no pre-built pair-index
+    cache, so pairs are resolved through the shared protein cache's ``seq2idx``
+    with :func:`~src.features.protein_cache.pair_feature_row_indices`, which
+    returns row indices only (never materializes the pair-endpoint graph). Pairs
+    whose either endpoint is absent from the cache are skipped and counted.
+    """
+    bench = load_benchmark(f"bernett:{split}", attach_seqs=True)
+    n_raw = len(bench.pairs)
+    resolved = pair_feature_row_indices(bench, cache, rep, layer, backbone)
+    if resolved is None:
+        raise RuntimeError(f"bernett:{split} had no pair with both endpoints cached")
+    _matrix, rows_a, rows_b, ys, kept = resolved
+    return {
+        "rows_a": torch.as_tensor(rows_a, dtype=torch.long),
+        "rows_b": torch.as_tensor(rows_b, dtype=torch.long),
+        "y": torch.as_tensor(ys, dtype=torch.float32),
+        "split": split,
+        "n_raw": int(n_raw),
+        "n_skipped": int(n_raw - len(kept)),
+    }
+
+
+def _cross_species_split(split: str, *, seed: int, val_frac: float) -> dict:
+    """Cross-species split endpoint rows from the pair-index caches.
+
+    ``train``/``val`` are carved from the ``human_train`` graph (no official val):
+    a stratified ``val_frac`` slice (``seed+1``) is held out and the remainder is
+    train -- the same seeds/order as the fingerprint baseline and tabpfn-topk, so
+    the two calls yield disjoint, deterministic slices. ``test`` is the
+    in-distribution ``human_test`` graph. All three index the shared cross_species
+    protein-feature matrix; training keeps the full train graph (batch-gather is
+    memory-safe, so no subsample is needed).
+    """
+    if split == "test":
+        index_cache = load_pair_index_cache(CROSS_SPECIES_PAIR_INDEX_CACHES["human_test"])
+        labels = index_cache["labels"].to(torch.float32)
+        return {
+            "rows_a": index_cache["rows_a"].to(torch.long),
+            "rows_b": index_cache["rows_b"].to(torch.long),
+            "y": labels,
+            "split": split,
+            "n_raw": int(labels.numel()),
+            "n_skipped": 0,
+        }
+
+    index_cache = load_pair_index_cache(CROSS_SPECIES_PAIR_INDEX_CACHES["human_train"])
+    labels_full = index_cache["labels"].numpy().astype(np.int64, copy=False)
+    n = len(labels_full)
+    n_val = max(1, int(n * val_frac))
+    val_idx = stratified_subsample(labels_full, n_val, seed + 1)
+    if val_idx is None:
+        raise ValueError(f"cross_species val carve failed: n={n} val_frac={val_frac}")
+    val_mask = np.zeros(n, dtype=bool)
+    val_mask[val_idx] = True
+    sel = val_idx if split == "val" else np.flatnonzero(~val_mask)
+
+    sel_t = torch.as_tensor(sel, dtype=torch.long)
+    rows_a = index_cache["rows_a"].to(torch.long).index_select(0, sel_t)
+    rows_b = index_cache["rows_b"].to(torch.long).index_select(0, sel_t)
+    return {
+        "rows_a": rows_a,
+        "rows_b": rows_b,
+        "y": torch.as_tensor(labels_full[sel], dtype=torch.float32),
+        "split": split,
+        "n_raw": int(sel.size),
+        "n_skipped": 0,
+    }
+
+
+def load_split(
+    family: str,
+    split: str,
+    *,
+    cache: dict,
+    rep: str,
+    backbone: str,
+    layer: int | None,
+    seed: int,
+    val_frac: float,
+) -> dict:
+    """Family-agnostic endpoint-row loader.
+
+    Returns ``{rows_a, rows_b, y, split, n_raw, n_skipped}`` with ``rows_a``/
+    ``rows_b`` long tensors indexing the shared protein-feature matrix and ``y``
+    a float32 label tensor. Dispatches by family: pair-index route for c1/c2/c3,
+    on-the-fly seq2idx resolution for bernett, and a stratified train/val carve
+    (plus in-distribution human_test) for cross_species.
+    """
+    if family in CLEVEL_PAIR_INDEX_CACHES:
+        return _clevel_split(family, split)
+    if family == "bernett":
+        return _bernett_split(split, cache, rep=rep, backbone=backbone, layer=layer)
+    if family == "cross_species":
+        return _cross_species_split(split, seed=seed, val_frac=val_frac)
+    raise ValueError(f"unknown family {family!r}")
 
 
 def batch_vectors(mat: torch.Tensor, rows: torch.Tensor, device: torch.device) -> torch.Tensor:
@@ -145,12 +265,21 @@ def predict(
 def train(args: argparse.Namespace) -> tuple[MLPEndpoint, dict, dict]:
     seed_all(args.seed)
     resolved_layer = resolve_backbone_layer(args.backbone, args.layer)
-    mat = load_cache(
-        args.rep, args.cache_path, backbone=args.backbone, layer=resolved_layer
+    cache = load_protein_feature_cache(args.cache_path)
+    mat = matrix_from_cache(
+        cache, args.rep, backbone=args.backbone, layer=resolved_layer
     )
-    train_split = load_split(args.family, "train")
-    val_split = load_split(args.family, "val")
-    test_split = load_split(args.family, "test")
+    split_kw = dict(
+        cache=cache,
+        rep=args.rep,
+        backbone=args.backbone,
+        layer=resolved_layer,
+        seed=args.seed,
+        val_frac=args.val_frac,
+    )
+    train_split = load_split(args.family, "train", **split_kw)
+    val_split = load_split(args.family, "val", **split_kw)
+    test_split = load_split(args.family, "test", **split_kw)
 
     dim = int(mat.shape[1])
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -353,8 +482,11 @@ def write_attribution_tables(model: MLPEndpoint, args: argparse.Namespace, aux: 
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--family", choices=FAMILIES, default="c3",
-                   help="C-level leakage family (c1/c2/c3). Routes both the "
-                   "protein feature cache and the pair-index caches.")
+                   help="Benchmark family (c1/c2/c3/bernett/cross_species). "
+                   "Routes both the protein feature cache and how splits are "
+                   "resolved (pair-index caches for c1/c2/c3 and cross_species; "
+                   "on-the-fly seq2idx for bernett; cross_species carves val "
+                   "from human_train and tests on human_test).")
     p.add_argument("--rep", choices=REPS, default="sae_max")
     p.add_argument(
         "--backbone",
@@ -374,7 +506,7 @@ def main() -> None:
         type=Path,
         default=None,
         help="Protein feature cache (auditppi_protein_features_v1). Defaults to "
-        "the selected family's cache (CLEVEL_SAE_CACHES[family]).",
+        "the selected family's cache (PPI_PREDICTION_CACHES[family]).",
     )
     p.add_argument(
         "--out-dir",
@@ -384,6 +516,13 @@ def main() -> None:
         "RESULTS_PAIR/{family}_endpoint_additive_mlp_sae.",
     )
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    p.add_argument(
+        "--val-frac",
+        type=float,
+        default=CROSS_SPECIES_VAL_FRAC,
+        help="cross_species only: stratified fraction carved off human_train as "
+        "the val split (seed+1). Ignored for families with a native val split.",
+    )
     p.add_argument("--epochs", type=int, default=80)
     p.add_argument("--patience", type=int, default=12)
     p.add_argument("--min-delta", type=float, default=1e-4)
@@ -407,7 +546,7 @@ def main() -> None:
     args = p.parse_args()
 
     if args.cache_path is None:
-        args.cache_path = CLEVEL_SAE_CACHES[args.family]
+        args.cache_path = PPI_PREDICTION_CACHES[args.family]
     if args.out_dir is None:
         args.out_dir = (
             RESULTS_PAIR

@@ -52,7 +52,11 @@ from src.features.sequence_composition import sequence_features
 DEFAULT_CACHE = PIC_HUMAN_SAE_CACHE
 OUT_DIR = RESULTS_PROTEIN / "pic_essentiality"
 
-FEATURE_KINDS = ("sae_max", "binary", "esmc_mean", "sequence_basic")
+# eSIG-Net 573-D physicochemical fingerprint (backbone/layer-agnostic, served from
+# the global sequence cache by representation_matrix). Kept last so the SAE views
+# come first; run it on its own via --feature-kind esig so it lands in a dedicated
+# ``esig`` summary rather than a backbone-tagged one (see b_tag below).
+FEATURE_KINDS = ("sae_max", "binary", "esmc_mean", "sequence_basic", "esig")
 
 
 # --------------------------------------------------------------------------- #
@@ -233,7 +237,15 @@ def main() -> None:
         },
     }
 
-    features = FEATURE_KINDS if args.feature_kind == "all" else (args.feature_kind,)
+    # ``esig`` is backbone/layer-agnostic (served from the global eSIG cache), so
+    # sweeping it inside ``all`` would recompute the identical 573-D result once
+    # per backbone file. Keep it out of ``all`` and require it to run alone via
+    # ``--feature-kind esig`` so it lands in its own ``esig`` file, mirroring the
+    # ppi_fingerprint eSIG layout.
+    if args.feature_kind == "all":
+        features = tuple(k for k in FEATURE_KINDS if k != "esig")
+    else:
+        features = (args.feature_kind,)
     results: dict[str, dict] = {}
     for kind in features:
         if kind == "sequence_basic":
@@ -272,7 +284,9 @@ def main() -> None:
         )
 
     out = {**subset_summary, "results": results}
-    b_tag = f"{args.backbone}L{layer}"
+    # eSIG is backbone/layer-agnostic and lands in its own ``esig`` file rather
+    # than clobbering an ``esmcL60``/``esm2L33`` SAE summary on the same axis.
+    b_tag = "esig" if args.feature_kind == "esig" else f"{args.backbone}L{layer}"
     out_path = args.out_dir / f"pic_{args.label_col}_frozen_sae_xgboost_{b_tag}.json"
     dump_experiment(
         out_path,

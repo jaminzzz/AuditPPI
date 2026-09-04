@@ -125,3 +125,31 @@ def load_protein_manifest(
         seq2idx=builder.seq2idx,
         sources=sources,
     )
+
+
+def manifest_from_protein_cache(path: Path) -> ProteinManifest:
+    """Rebuild a :class:`ProteinManifest` from a v1 protein feature cache.
+
+    Reads only the manifest fields (``protein_ids``/``sequences``/``id2idx``/
+    ``seq2idx``) and never materializes the (multi-GB) feature tensors, so a
+    per-protein baseline can re-derive the exact unique-sequence set and row
+    order of an existing ``auditppi_protein_features_v1`` cache. This keeps the
+    baseline's rows aligned to the pair-side protein caches by construction.
+    """
+    import torch
+
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    payload = torch.load(path, map_location="cpu", weights_only=False, mmap=True)
+    fmt = payload.get("format")
+    if fmt != "auditppi_protein_features_v1":
+        raise ValueError(f"{path}: expected auditppi_protein_features_v1, got {fmt!r}")
+    meta = payload.get("meta", {})
+    return ProteinManifest(
+        protein_ids=list(payload["protein_ids"]),
+        sequences=list(payload["sequences"]),
+        id2idx=dict(payload["id2idx"]),
+        seq2idx=dict(payload["seq2idx"]),
+        sources=list(meta.get("sources", []) or [str(path)]),
+    )
