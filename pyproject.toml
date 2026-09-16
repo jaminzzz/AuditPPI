@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auditppi"
+version = "0.1.0"
+description = "Auditing sequence-based protein-protein interaction signals with sparse-autoencoder fingerprints"
+requires-python = ">=3.10"
+readme = "README.md"
+
+# NOTE: dependencies are a documentation manifest only. The runtime environments
+# are provisioned via conda (see environment/envs.md); this project is installed
+# with `pip install -e . --no-deps` so these versions are NOT resolved by pip.
+# Keep this list in sync with the active conda env for reproducibility.
+dependencies = [
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "scipy",
+    "torch",
+    "xgboost",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+# Heavier / task-specific backends, pulled in per audit stage.
+interp = ["interpret", "tabpfn"]
+dev = ["pytest"]
+
+# Only project-owned code is packaged; vendored upstream repos under baselines/
+# and external/ are deliberately excluded (they ship their own packaging).
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "conf*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
