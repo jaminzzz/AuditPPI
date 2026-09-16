@@ -12,11 +12,6 @@ to decompose *why* a predictor scores a pair as interacting, across three scales
 | **Pair** (Ladder 2) | Does pairwise SAE-feature concordance inflate a leakage-controlled benchmark, and is it a retrieval shortcut? | semantic concordance / negative-sampling bias |
 | **Residue** (Ladder 3) | Are benchmark-important features actually interface-specific, or just surface propensity? | genuine interface grounding |
 
-The framework is **diagnostic, not a new PPI scorer**: it re-examines existing
-benchmark splits, cached representations, and trained-model artifacts (feature
-rankings, TabPFN attention neighbourhoods). See
-`manuscripts/ncs_brief_communication_draft.md` for the full write-up.
-
 ---
 
 ## Layout
